@@ -1,32 +1,31 @@
 apiVersion: acdd/v1
 kind: capability-contract
 id: acdd/capabilities/v1
-title: Host-neutral ACDD coordination ports
+title: Host-neutral ACDD capability ports
 capabilities:
   task_read:
-    owner: planner-adapter
     purpose: Read the selected task and current execution state.
-    authority: Planner remains authoritative.
+    providedBy: task-adapter
   task_write:
-    owner: planner-adapter
-    purpose: Record task-owned evidence, blockers, and execution updates.
-    authority: May modify only the bound task and its owned execution entry.
+    purpose: Record evidence, blockers, and execution updates for the bound task.
+    providedBy: task-adapter
   source_map:
-    owner: contextunity-adapter
-    purpose: Establish bounded live code owners, callers, and impact.
+    purpose: Establish bounded live owners, callers, and impact.
+    providedBy: implementation-adapter
   docs_search:
-    owner: contextunity-adapter
-    purpose: Retrieve task-relevant ContextUnity documentation evidence.
+    purpose: Retrieve task-relevant documentation evidence.
+    providedBy: implementation-adapter
   structural_search:
-    owner: contextunity-adapter
-    purpose: Verify structural source claims after orientation.
+    purpose: Verify source claims after orientation.
+    providedBy: implementation-adapter
   run_gate:
-    owner: contextunity-adapter
     purpose: Run one exact scoped proof command and return its result.
+    providedBy: implementation-adapter
   independent_review:
-    owner: review-adapter
     purpose: Obtain a review independent of the task author.
+    providedBy: review-adapter
 rules:
-  - The workflow may require a capability but may not name a host-specific tool.
-  - Planner task files are the sole persistent task and evidence authority.
+  - A profile may require a capability but may not name a host-specific tool.
+  - An implementation adapter may add evidence and commands but may not weaken a gate.
+  - The task adapter declares the persistent task and evidence authority.
   - Missing required capability or evidence blocks the affected gate.

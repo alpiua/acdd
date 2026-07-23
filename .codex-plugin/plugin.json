@@ -1,18 +1,18 @@
 {
-  "name": "contextunity-acdd-workflow",
-  "version": "0.1.0",
-  "description": "Host-neutral ACDD coordination workflow for Planner and ContextUnity.",
+  "name": "acdd-workflow",
+  "version": "1.0.0",
+  "description": "Host-neutral, evidence-bound ACDD coordination workflow.",
   "author": {
     "name": "ContextUnity"
   },
   "skills": "./skills/",
   "interface": {
-    "displayName": "ContextUnity ACDD Workflow",
-    "shortDescription": "Coordinate Planner evidence and ContextUnity delivery.",
-    "longDescription": "Defines one host-neutral, evidence-bound ACDD workflow. Planner remains the task authority and ContextUnity remains the runtime authority.",
+    "displayName": "ACDD Workflow",
+    "shortDescription": "Coordinate evidence-bound delivery through adapters.",
+    "longDescription": "Defines one host-neutral, evidence-bound ACDD workflow. Task, domain, and review adapters provide authority and execution.",
     "developerName": "ContextUnity",
     "category": "Developer Tools",
     "capabilities": [],
-    "defaultPrompt": "Use the ContextUnity ACDD workflow for the current Planner task."
+    "defaultPrompt": "Use the ACDD v1 workflow with the selected task, domain, and review adapters."
   }
 }

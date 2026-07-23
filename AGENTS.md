@@ -1,12 +1,12 @@
-# ContextUnity ACDD Workflow
+# ACDD Workflow
 
 This plugin owns the host-neutral ACDD coordination contract.
 
 - Keep `profiles/` and `contracts/` free of host-specific tool names.
-- Keep Planner as task/evidence authority and ContextUnity as runtime authority.
-- Move one canonical skill/reference at a time; leave compatibility routers instead
-  of copies.
-- Update the single plan at
-  `../../planner/plugins/contextunity-acdd-workflow.md` when scope or
-  capability contracts change.
-- Validate the Codex manifest, YAML profile/contract, links, and `git diff --check`.
+- Keep adapter implementations outside this plugin in their owning repositories.
+- Keep only methodology, contracts, routing, and generic skills here.
+- Update the single plan at `../../planner/plugins/acdd-workflow.md` when scope
+  or capability contracts change.
+- Run `python3 scripts/validate_acdd.py`; for workspace integration add
+  `--binding ../../.agents/acdd/binding.yaml --settings ../../.pi/settings.json`.
+- Run `python3 -m pytest tests -q`, link validation, and `git diff --check`.

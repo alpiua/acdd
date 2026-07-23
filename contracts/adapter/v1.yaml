@@ -1,0 +1,25 @@
+apiVersion: acdd/adapter/v1
+kind: adapter-contract
+required:
+  - id
+  - role
+  - provides
+  - procedure
+  - authority
+  - constraints
+optional:
+  - availability
+  - receipts
+  - skillExtensions
+  - gateProcedures
+  - resources
+  - scripts
+roles:
+  task: [task_read, task_write]
+  implementation: [source_map, docs_search, structural_search, run_gate]
+  review: [independent_review]
+rules:
+  - An adapter declares only capabilities implemented by its owner.
+  - Procedure, resource, and script paths resolve relative to the adapter file.
+  - An adapter may strengthen a gate but may not remove or reorder profile gates.
+  - Missing required capability blocks the affected gate.
