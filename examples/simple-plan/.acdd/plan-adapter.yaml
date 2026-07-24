@@ -8,6 +8,8 @@ authority:
   primaryPlan: ../PLAN.md
   embeddedTasks: ../PLAN.md#tasks
   sourceEvidence: repository-local read-only paths
+  impact:
+    domains: [api-compatibility, operations]
 inputAuthorities:
   bound-document: [examples/simple-plan/PLAN.md]
   source: [examples/simple-plan/**]

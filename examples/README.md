@@ -10,7 +10,6 @@
 | [`audit/.acdd/`](audit/.acdd/) | audit | selected terminal report publication |
 | [`simple-plan/`](simple-plan/) | plan | self-contained milestone plan with embedded tasks |
 | [`task/TASK.md`](task/TASK.md) | task document | inline typed inputs, evidence, and pending receipts |
-| [repository `.acdd/`](../.acdd/) | plan | this package's own simple-plan adapter |
 
 Copy the matching `.acdd/` directory into the repository that owns the domain,
 then replace example authority and procedures with live paths and commands.

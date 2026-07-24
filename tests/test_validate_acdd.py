@@ -119,12 +119,6 @@ def test_example_adapters_cover_routed_capabilities() -> None:
     review = implementation_adapter["gateProcedures"]["review/v1"]
     assert review["launcher"]["target"] == "pi_review_agents"
     assert review["launcher"]["target"] in review["toolEnvelope"]["admit"]
-    MODULE.load_adapter(
-        ROOT / ".acdd" / "plan-adapter.yaml",
-        "plan",
-        plan,
-        allowed_root=ROOT,
-    )
     for relative in (
         "examples/simple-plan/.acdd/plan-adapter.yaml",
         "examples/planner/.acdd/plan-adapter.yaml",
@@ -369,9 +363,11 @@ def test_fail_retry_requires_a_changed_fingerprint_and_plan_is_explicit() -> Non
         ARCH.validate_retry_fingerprint(failed, unchanged)
     changed = "sha256:" + "2" * 64
     assert ARCH.validate_retry_fingerprint(failed, changed) == changed
-    plan = (ROOT / "PLAN.md").read_text(encoding="utf-8")
-    assert "Repeat until PASS" in plan
-    assert "unchanged FAIL fingerprint" in " ".join(plan.split())
+    documentation = " ".join(
+        (ROOT / "README.md").read_text(encoding="utf-8").split()
+    )
+    assert "rerun only after a real change" in documentation
+    assert "current fingerprint" in documentation
 
 
 @pytest.mark.parametrize(
@@ -385,7 +381,7 @@ def test_removed_cli_options_are_rejected(argument: str) -> None:
             "--workspace-root",
             str(ROOT),
             "--document",
-            str(ROOT / "PLAN.md"),
+            str(ROOT / "examples" / "simple-plan" / "PLAN.md"),
             argument,
             "removed.json",
         ],
@@ -397,7 +393,7 @@ def test_removed_cli_options_are_rejected(argument: str) -> None:
     assert f"unrecognized arguments: {argument}" in result.stderr
 
 
-def test_repository_plan_validates_without_provenance_files() -> None:
+def test_self_contained_plan_example_validates_without_provenance_files() -> None:
     result = subprocess.run(
         [
             sys.executable,
@@ -407,9 +403,9 @@ def test_repository_plan_validates_without_provenance_files() -> None:
             "--workspace-root",
             str(ROOT),
             "--document",
-            str(ROOT / "PLAN.md"),
+            str(ROOT / "examples" / "simple-plan" / "PLAN.md"),
             "--adapter",
-            f"plan={ROOT / '.acdd' / 'plan-adapter.yaml'}",
+            f"plan={ROOT / 'examples' / 'simple-plan' / '.acdd' / 'plan-adapter.yaml'}",
         ],
         text=True,
         capture_output=True,

@@ -16,18 +16,17 @@ assert SPEC is not None and SPEC.loader is not None
 MODULE = importlib.util.module_from_spec(SPEC)
 sys.modules[SPEC.name] = MODULE
 SPEC.loader.exec_module(MODULE)
+EXAMPLE_PLAN = ROOT / "examples" / "simple-plan" / "PLAN.md"
 
 
-def test_examples_are_valid() -> None:
-    MODULE.validate_plan(ROOT / "PLAN.md", strict=True)
-    MODULE.validate_plan(ROOT / "examples" / "simple-plan" / "PLAN.md", strict=True)
+def test_example_is_valid() -> None:
+    MODULE.validate_plan(EXAMPLE_PLAN, strict=True)
 
 
 def test_wrong_owner_kind_fails(tmp_path: Path) -> None:
     plan = tmp_path / "PLAN.md"
     plan.write_text(
-        (ROOT / "PLAN.md")
-        .read_text(encoding="utf-8")
+        EXAMPLE_PLAN.read_text(encoding="utf-8")
         .replace("owner_kind: milestone", "owner_kind: roadmap", 1),
         encoding="utf-8",
     )
@@ -38,9 +37,8 @@ def test_wrong_owner_kind_fails(tmp_path: Path) -> None:
 def test_forward_prerequisite_fails(tmp_path: Path) -> None:
     plan = tmp_path / "PLAN.md"
     plan.write_text(
-        (ROOT / "PLAN.md")
-        .read_text(encoding="utf-8")
-        .replace("- **Prerequisites:** none", "- **Prerequisites:** ACDD-2", 1),
+        EXAMPLE_PLAN.read_text(encoding="utf-8")
+        .replace("- **Prerequisites:** none", "- **Prerequisites:** GW-2", 1),
         encoding="utf-8",
     )
     with pytest.raises(MODULE.PlanError, match="earlier tasks"):
@@ -50,8 +48,7 @@ def test_forward_prerequisite_fails(tmp_path: Path) -> None:
 def test_persisted_receipt_reference_fails(tmp_path: Path) -> None:
     plan = tmp_path / "PLAN.md"
     plan.write_text(
-        (ROOT / "PLAN.md")
-        .read_text(encoding="utf-8")
+        EXAMPLE_PLAN.read_text(encoding="utf-8")
         .replace("| pending | pending | pending |", "| blocked | manifest=x | pending |", 1),
         encoding="utf-8",
     )
@@ -62,8 +59,7 @@ def test_persisted_receipt_reference_fails(tmp_path: Path) -> None:
 def test_planning_requires_todo_tasks(tmp_path: Path) -> None:
     plan = tmp_path / "PLAN.md"
     plan.write_text(
-        (ROOT / "PLAN.md")
-        .read_text(encoding="utf-8")
+        EXAMPLE_PLAN.read_text(encoding="utf-8")
         .replace("- **Status:** todo", "- **Status:** in_progress", 1),
         encoding="utf-8",
     )
