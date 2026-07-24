@@ -1,0 +1,872 @@
+"""Validate inline ACDD evidence, receipts, and task contract continuity."""
+from __future__ import annotations
+
+import re
+from dataclasses import dataclass
+from datetime import datetime
+from pathlib import Path
+from uuid import UUID
+
+from acdd_fingerprint import (
+    DIGEST_RE,
+    FingerprintError,
+    SemanticFingerprint,
+    fingerprint_inputs,
+    markdown_sections,
+    parse_inputs,
+    semantic_task_fingerprint,
+    yaml_documents,
+)
+from architecture_verification import (
+    ArchitectureVerificationError,
+    validate_result as validate_architecture_verification_result,
+)
+from value_domains import ValueDomain, ValueDomainError, parse_value_domains
+
+UTC_RE = re.compile(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z")
+EVIDENCE_ID_RE = re.compile(r"[a-z][a-z0-9._-]+")
+LEGACY_REFERENCE_RE = re.compile(r"\b(?:manifest|spec|components)=")
+SECRET_RE = re.compile(
+    r"(?i)(?:api[_-]?key|authorization|password|secret|token)\s*[:=]\s*(?!<redacted>)\S+"
+)
+MAX_OUTPUT_BYTES = 4096
+
+
+class DocumentError(ValueError):
+    """The bound task/plan inline contract is invalid."""
+
+
+@dataclass(frozen=True)
+class GatePolicy:
+    gate: str
+    terminal_statuses: frozenset[str]
+    invalidation_inputs: frozenset[str]
+
+
+@dataclass(frozen=True)
+class Receipt:
+    gate: str
+    status: str
+    evidence_id: str | None
+    input_fingerprint: str | None
+    recorded_at: str | None
+
+
+@dataclass(frozen=True)
+class Evidence:
+    id: str
+    kind: str
+    gate: str
+    input_fingerprint: str
+    data: dict[str, object]
+
+
+@dataclass(frozen=True)
+class SemanticRecord:
+    sha256: str
+    ids: tuple[str, ...]
+    red_proof_sha256: str
+    red_evidence_ids: tuple[str, ...]
+
+
+def _mapping(value: object, label: str) -> dict[str, object]:
+    if not isinstance(value, dict) or not all(
+        isinstance(key, str) for key in value
+    ):
+        raise DocumentError(f"{label}: expected a string-keyed mapping")
+    return {str(key): child for key, child in value.items()}
+
+
+def _string(value: object, label: str) -> str:
+    if not isinstance(value, str) or not value.strip():
+        raise DocumentError(f"{label}: expected a non-empty string")
+    return value.strip()
+
+
+def _string_list(value: object, label: str, *, allow_empty: bool = False) -> list[str]:
+    if not isinstance(value, list) or (not value and not allow_empty):
+        raise DocumentError(f"{label}: expected a string list")
+    if not all(isinstance(item, str) and item.strip() for item in value):
+        raise DocumentError(f"{label}: expected a string list")
+    result = [str(item).strip() for item in value]
+    if len(result) != len(set(result)):
+        raise DocumentError(f"{label}: duplicate values are not allowed")
+    return result
+
+
+def _bool(value: object, label: str) -> bool:
+    if not isinstance(value, bool):
+        raise DocumentError(f"{label}: expected boolean")
+    return value
+
+
+def _require_keys(
+    value: dict[str, object],
+    *,
+    required: frozenset[str],
+    optional: frozenset[str],
+    label: str,
+) -> None:
+    missing = required - set(value)
+    unknown = set(value) - required - optional
+    if missing or unknown:
+        raise DocumentError(
+            f"{label}: missing={sorted(missing)} unknown={sorted(unknown)}"
+        )
+
+
+def _timestamp(value: object, label: str) -> str:
+    raw = _string(value, label)
+    if UTC_RE.fullmatch(raw) is None:
+        raise DocumentError(f"{label}: expected UTC YYYY-MM-DDTHH:MM:SSZ")
+    try:
+        datetime.fromisoformat(raw.replace("Z", "+00:00"))
+    except ValueError as exc:
+        raise DocumentError(f"{label}: invalid UTC timestamp") from exc
+    return raw
+
+
+def _fingerprint(value: object, label: str) -> str:
+    raw = _string(value, label)
+    if DIGEST_RE.fullmatch(raw) is None:
+        raise DocumentError(f"{label}: expected sha256:<64 lowercase hex>")
+    return raw
+
+
+def _parse_component_locks(
+    value: object,
+    *,
+    declared_paths: frozenset[str],
+    workspace_root: Path,
+    label: str,
+) -> None:
+    if not isinstance(value, list) or not value:
+        raise DocumentError(f"{label}: expected a non-empty component lock list")
+    seen: set[str] = set()
+    for index, raw in enumerate(value):
+        item = _mapping(raw, f"{label}[{index}]")
+        if set(item) != {"path", "sha256"}:
+            raise DocumentError(f"{label}[{index}]: expected path and sha256")
+        path = _string(item.get("path"), f"{label}[{index}].path")
+        digest = _fingerprint(item.get("sha256"), f"{label}[{index}].sha256")
+        if path in seen or path not in declared_paths:
+            raise DocumentError(
+                f"{label}[{index}]: duplicate or undeclared proof path {path!r}"
+            )
+        seen.add(path)
+        target = (workspace_root / path).resolve()
+        if not target.is_relative_to(workspace_root.resolve()) or not target.is_file():
+            raise DocumentError(f"{label}[{index}]: missing or escaping path {path!r}")
+        import hashlib
+
+        current = "sha256:" + hashlib.sha256(target.read_bytes()).hexdigest()
+        if current != digest:
+            raise DocumentError(f"{label}[{index}]: stale component lock")
+
+
+def parse_evidence(
+    text: str, *, workspace_root: Path, semantic: SemanticFingerprint | None
+) -> dict[str, Evidence]:
+    sections = markdown_sections(text)
+    if "ACDD gate evidence" not in sections:
+        raise DocumentError("missing ## ACDD gate evidence")
+    if LEGACY_REFERENCE_RE.search(sections["ACDD gate evidence"]):
+        raise DocumentError(
+            "legacy manifest=, spec=, and components= references are forbidden"
+        )
+    try:
+        documents = yaml_documents(
+            sections["ACDD gate evidence"], "ACDD gate evidence"
+        )
+        declared_paths = frozenset(item.path for item in parse_inputs(text))
+    except FingerprintError as exc:
+        raise DocumentError(str(exc)) from exc
+    evidence: dict[str, Evidence] = {}
+    if len(documents) == 1 and documents[0] == []:
+        return evidence
+    common = frozenset({"apiVersion", "kind", "id", "gate", "inputFingerprint"})
+    schemas: dict[str, tuple[frozenset[str], frozenset[str]]] = {
+        "basis": (
+            common | {"summary", "authoritySources", "mappings"},
+            frozenset({"contradictions"}),
+        ),
+        "command": (
+            common
+            | {
+                "exactCommand",
+                "recordedAt",
+                "exitCode",
+                "output",
+                "redacted",
+                "result",
+            },
+            frozenset(
+                {
+                    "gitRevision",
+                    "componentLocks",
+                    "proofDefinitionFingerprint",
+                }
+            ),
+        ),
+        "review": (
+            common
+            | {
+                "adapter",
+                "sessionUuid",
+                "authorSessionUuid",
+                "reviewer",
+                "independent",
+                "terminalVerdict",
+                "authoritySources",
+                "productionPaths",
+                "directCallers",
+                "alternateCallers",
+                "contradictions",
+                "impactAxes",
+                "matrixMappings",
+                "proofMappings",
+                "findings",
+                "inventoryComplete",
+                "decisionsResolved",
+                "callerCoverageComplete",
+                "persistedContractChange",
+                "persistedContractMappings",
+                "discoveryComplete",
+            },
+            frozenset({"verification"}),
+        ),
+        "handoff": (
+            common | {"summary", "receipts", "blockers"},
+            frozenset(),
+        ),
+        "rationale": (
+            common | {"rationale", "authorization"},
+            frozenset(),
+        ),
+    }
+    for index, raw in enumerate(documents):
+        item = _mapping(raw, f"ACDD gate evidence[{index}]")
+        if item.get("apiVersion") != "acdd/gate-evidence/v1":
+            raise DocumentError(
+                f"ACDD gate evidence[{index}]: unsupported apiVersion"
+            )
+        kind = _string(item.get("kind"), f"ACDD gate evidence[{index}].kind")
+        if kind not in schemas:
+            raise DocumentError(
+                f"ACDD gate evidence[{index}]: unknown kind {kind!r}"
+            )
+        required, optional = schemas[kind]
+        _require_keys(
+            item,
+            required=required,
+            optional=optional,
+            label=f"ACDD gate evidence[{index}]",
+        )
+        evidence_id = _string(item.get("id"), f"ACDD gate evidence[{index}].id")
+        if EVIDENCE_ID_RE.fullmatch(evidence_id) is None:
+            raise DocumentError(f"invalid evidence id {evidence_id!r}")
+        if evidence_id in evidence:
+            raise DocumentError(f"duplicate evidence id {evidence_id!r}")
+        gate = _string(item.get("gate"), f"evidence {evidence_id}.gate")
+        input_fingerprint = _fingerprint(
+            item.get("inputFingerprint"),
+            f"evidence {evidence_id}.inputFingerprint",
+        )
+        if kind == "basis":
+            _string(item.get("summary"), f"evidence {evidence_id}.summary")
+            _string_list(
+                item.get("authoritySources"),
+                f"evidence {evidence_id}.authoritySources",
+            )
+            _string_list(
+                item.get("mappings"), f"evidence {evidence_id}.mappings"
+            )
+            if "contradictions" in item:
+                _string_list(
+                    item.get("contradictions"),
+                    f"evidence {evidence_id}.contradictions",
+                    allow_empty=True,
+                )
+        elif kind == "command":
+            _string(item.get("exactCommand"), f"evidence {evidence_id}.exactCommand")
+            _timestamp(item.get("recordedAt"), f"evidence {evidence_id}.recordedAt")
+            if not isinstance(item.get("exitCode"), int):
+                raise DocumentError(
+                    f"evidence {evidence_id}.exitCode: expected integer"
+                )
+            output = item.get("output")
+            if not isinstance(output, str):
+                raise DocumentError(f"evidence {evidence_id}.output: expected string")
+            if len(output.encode("utf-8")) > MAX_OUTPUT_BYTES:
+                raise DocumentError(
+                    f"evidence {evidence_id}.output exceeds {MAX_OUTPUT_BYTES} bytes"
+                )
+            if SECRET_RE.search(output):
+                raise DocumentError(
+                    f"evidence {evidence_id}.output contains an unredacted secret"
+                )
+            _bool(item.get("redacted"), f"evidence {evidence_id}.redacted")
+            _string(item.get("result"), f"evidence {evidence_id}.result")
+            if gate == "red/v1":
+                if semantic is None:
+                    raise DocumentError("red/v1 requires a semantic task fingerprint")
+                proof_fingerprint = _fingerprint(
+                    item.get("proofDefinitionFingerprint"),
+                    f"evidence {evidence_id}.proofDefinitionFingerprint",
+                )
+                if proof_fingerprint != semantic.red_proof_sha256:
+                    raise DocumentError(
+                        f"evidence {evidence_id}: proof definition changed"
+                    )
+                revision = item.get("gitRevision")
+                if revision is None:
+                    _parse_component_locks(
+                        item.get("componentLocks"),
+                        declared_paths=declared_paths,
+                        workspace_root=workspace_root,
+                        label=f"evidence {evidence_id}.componentLocks",
+                    )
+                else:
+                    _string(revision, f"evidence {evidence_id}.gitRevision")
+        elif kind == "review":
+            for field in (
+                "adapter",
+                "reviewer",
+                "terminalVerdict",
+            ):
+                _string(item.get(field), f"evidence {evidence_id}.{field}")
+            for field in ("sessionUuid", "authorSessionUuid"):
+                raw_uuid = _string(item.get(field), f"evidence {evidence_id}.{field}")
+                try:
+                    UUID(raw_uuid)
+                except ValueError as exc:
+                    raise DocumentError(
+                        f"evidence {evidence_id}.{field}: invalid UUID"
+                    ) from exc
+            for field in (
+                "authoritySources",
+                "productionPaths",
+                "directCallers",
+                "alternateCallers",
+                "contradictions",
+                "matrixMappings",
+                "proofMappings",
+                "findings",
+                "persistedContractMappings",
+            ):
+                _string_list(
+                    item.get(field),
+                    f"evidence {evidence_id}.{field}",
+                    allow_empty=field
+                    in {
+                        "alternateCallers",
+                        "contradictions",
+                        "findings",
+                        "persistedContractMappings",
+                    },
+                )
+            impact = _mapping(
+                item.get("impactAxes"), f"evidence {evidence_id}.impactAxes"
+            )
+            if not impact or not all(
+                isinstance(value, str) and value.strip()
+                for value in impact.values()
+            ):
+                raise DocumentError(
+                    f"evidence {evidence_id}.impactAxes: expected non-empty string mapping"
+                )
+            for field in (
+                "independent",
+                "inventoryComplete",
+                "decisionsResolved",
+                "callerCoverageComplete",
+                "persistedContractChange",
+                "discoveryComplete",
+            ):
+                _bool(item.get(field), f"evidence {evidence_id}.{field}")
+        elif kind == "handoff":
+            _string(item.get("summary"), f"evidence {evidence_id}.summary")
+            _string_list(item.get("receipts"), f"evidence {evidence_id}.receipts")
+            _string_list(
+                item.get("blockers"),
+                f"evidence {evidence_id}.blockers",
+                allow_empty=True,
+            )
+        else:
+            _string(item.get("rationale"), f"evidence {evidence_id}.rationale")
+            _string(item.get("authorization"), f"evidence {evidence_id}.authorization")
+        evidence[evidence_id] = Evidence(
+            id=evidence_id,
+            kind=kind,
+            gate=gate,
+            input_fingerprint=input_fingerprint,
+            data=item,
+        )
+    return evidence
+
+
+def parse_receipts(text: str, *, plan: bool) -> tuple[Receipt, ...]:
+    sections = markdown_sections(text)
+    names = ("ACDD plan receipts", "ACDD receipts") if plan else ("ACDD receipts",)
+    section_name = next((name for name in names if name in sections), None)
+    if section_name is None:
+        raise DocumentError(f"missing ## {names[0]}")
+    body = sections[section_name]
+    if LEGACY_REFERENCE_RE.search(body):
+        raise DocumentError(
+            "legacy manifest=, spec=, and components= references are forbidden"
+        )
+    rows: list[Receipt] = []
+    for line in body.splitlines():
+        if not line.lstrip().startswith("|"):
+            continue
+        cells = [cell.strip().strip("`") for cell in line.strip().strip("|").split("|")]
+        if len(cells) < 5 or cells[0].lower() == "gate" or set(cells[0]) <= {"-", ":"}:
+            continue
+        gate, status, evidence_raw, fingerprint_raw, recorded_raw = cells[:5]
+        evidence_id: str | None = None
+        if evidence_raw != "pending":
+            match = re.fullmatch(r"evidence=([a-z][a-z0-9._-]+)", evidence_raw)
+            if match is None:
+                raise DocumentError(
+                    f"receipt {gate}: evidence must be pending or evidence=<id>"
+                )
+            evidence_id = match.group(1)
+        input_fingerprint = (
+            None
+            if fingerprint_raw == "pending"
+            else _fingerprint(fingerprint_raw, f"receipt {gate}.inputFingerprint")
+        )
+        recorded_at = (
+            None
+            if recorded_raw == "pending"
+            else _timestamp(recorded_raw, f"receipt {gate}.recordedAt")
+        )
+        rows.append(
+            Receipt(gate, status, evidence_id, input_fingerprint, recorded_at)
+        )
+    if not rows:
+        raise DocumentError(f"{section_name}: no receipt rows")
+    if len({row.gate for row in rows}) != len(rows):
+        raise DocumentError("duplicate receipt gate")
+    return tuple(rows)
+
+
+def parse_semantic_record(text: str) -> SemanticRecord:
+    sections = markdown_sections(text)
+    if "ACDD contract fingerprint" not in sections:
+        raise DocumentError("active task missing ## ACDD contract fingerprint")
+    try:
+        documents = yaml_documents(
+            sections["ACDD contract fingerprint"], "ACDD contract fingerprint"
+        )
+    except FingerprintError as exc:
+        raise DocumentError(str(exc)) from exc
+    if len(documents) != 1:
+        raise DocumentError("ACDD contract fingerprint: expected one document")
+    item = _mapping(documents[0], "ACDD contract fingerprint")
+    required = frozenset(
+        {
+            "apiVersion",
+            "sha256",
+            "ids",
+            "redProofFingerprint",
+            "redEvidenceIds",
+        }
+    )
+    _require_keys(
+        item,
+        required=required,
+        optional=frozenset(),
+        label="ACDD contract fingerprint",
+    )
+    if item.get("apiVersion") != "acdd/semantic-fingerprint/v1":
+        raise DocumentError("unsupported semantic fingerprint apiVersion")
+    return SemanticRecord(
+        sha256=_fingerprint(item.get("sha256"), "semantic fingerprint.sha256"),
+        ids=tuple(_string_list(item.get("ids"), "semantic fingerprint.ids", allow_empty=True)),
+        red_proof_sha256=_fingerprint(
+            item.get("redProofFingerprint"),
+            "semantic fingerprint.redProofFingerprint",
+        ),
+        red_evidence_ids=tuple(
+            _string_list(
+                item.get("redEvidenceIds"),
+                "semantic fingerprint.redEvidenceIds",
+                allow_empty=True,
+            )
+        ),
+    )
+
+
+def _validate_contract_changes(
+    text: str,
+    *,
+    current: SemanticFingerprint,
+    record: SemanticRecord,
+    receipts: tuple[Receipt, ...],
+    gate_order: tuple[str, ...],
+) -> None:
+    sections = markdown_sections(text)
+    if (
+        record.sha256 == current.sha256
+        and record.ids == current.ids
+        and "ACDD contract changes" not in sections
+    ):
+        return
+    if "ACDD contract changes" not in sections:
+        raise DocumentError("semantic contract changed without contract-change chain")
+    try:
+        documents = yaml_documents(
+            sections["ACDD contract changes"], "ACDD contract changes"
+        )
+    except FingerprintError as exc:
+        raise DocumentError(str(exc)) from exc
+    if not documents:
+        raise DocumentError("empty contract-change chain")
+    accepted = False
+    for index, raw in enumerate(documents):
+        item = _mapping(raw, f"contract change[{index}]")
+        if item.get("apiVersion") != "acdd/contract-change/v1":
+            raise DocumentError(f"contract change[{index}]: unsupported apiVersion")
+        kind = _string(item.get("kind"), f"contract change[{index}].kind")
+        if kind == "profile-migration":
+            required = frozenset(
+                {
+                    "apiVersion",
+                    "kind",
+                    "beforeFingerprint",
+                    "afterFingerprint",
+                    "beforeIds",
+                    "afterIds",
+                }
+            )
+            _require_keys(
+                item,
+                required=required,
+                optional=frozenset(),
+                label=f"contract change[{index}]",
+            )
+            before = _fingerprint(
+                item.get("beforeFingerprint"), f"contract change[{index}].before"
+            )
+            after = _fingerprint(
+                item.get("afterFingerprint"), f"contract change[{index}].after"
+            )
+            before_ids = set(
+                _string_list(item.get("beforeIds"), f"contract change[{index}].beforeIds", allow_empty=True)
+            )
+            after_ids = set(
+                _string_list(item.get("afterIds"), f"contract change[{index}].afterIds", allow_empty=True)
+            )
+            if before != after or after != current.sha256 or before_ids - after_ids:
+                raise DocumentError(
+                    "profile-migration must preserve semantic fingerprint and IDs: "
+                    f"before={before} after={after} current={current.sha256} "
+                    f"removedIds={sorted(before_ids - after_ids)}"
+                )
+            accepted = True
+        elif kind == "semantic-change":
+            required = frozenset(
+                {
+                    "apiVersion",
+                    "kind",
+                    "rationale",
+                    "authorization",
+                    "beforeFingerprint",
+                    "afterFingerprint",
+                    "removedIds",
+                }
+            )
+            _require_keys(
+                item,
+                required=required,
+                optional=frozenset(),
+                label=f"contract change[{index}]",
+            )
+            _string(item.get("rationale"), f"contract change[{index}].rationale")
+            _string(item.get("authorization"), f"contract change[{index}].authorization")
+            before = _fingerprint(
+                item.get("beforeFingerprint"), f"contract change[{index}].before"
+            )
+            after = _fingerprint(
+                item.get("afterFingerprint"), f"contract change[{index}].after"
+            )
+            removed = set(
+                _string_list(item.get("removedIds"), f"contract change[{index}].removedIds", allow_empty=True)
+            )
+            actual_removed = set(record.ids) - set(current.ids)
+            if before != record.sha256 or after != current.sha256 or removed != actual_removed:
+                raise DocumentError(
+                    "semantic-change fingerprints or explicit removed IDs do not match: "
+                    f"record={record.sha256} before={before} current={current.sha256} "
+                    f"after={after} removed={sorted(removed)} "
+                    f"actualRemoved={sorted(actual_removed)}"
+                )
+            reset_from = gate_order.index("matrix/v1")
+            receipt_map = {receipt.gate: receipt for receipt in receipts}
+            for gate in gate_order[reset_from:]:
+                if receipt_map[gate].status not in {"pending", "blocked"}:
+                    raise DocumentError(
+                        f"semantic-change requires nonterminal receipt {gate}"
+                    )
+            accepted = True
+        else:
+            raise DocumentError(f"contract change[{index}]: unknown kind {kind!r}")
+    if not accepted:
+        raise DocumentError("current semantic change lacks an authorized semantic-change record")
+
+
+def validate_document(
+    *,
+    document: Path,
+    profile: Path,
+    receipt_contract: Path,
+    adapters: tuple[Path, ...],
+    workspace_root: Path,
+    policies: tuple[GatePolicy, ...],
+    plan: bool,
+    impact_axes: frozenset[str],
+    architecture_verification_schema: dict[str, object] | None = None,
+    architecture_verification_contract: dict[str, object] | None = None,
+) -> None:
+    text = document.read_text(encoding="utf-8")
+    if LEGACY_REFERENCE_RE.search(text):
+        raise DocumentError(
+            "legacy manifest=, spec=, and components= references are forbidden"
+        )
+    semantic: SemanticFingerprint | None = None
+    semantic_record: SemanticRecord | None = None
+    if not plan:
+        try:
+            semantic = semantic_task_fingerprint(text)
+        except FingerprintError as exc:
+            raise DocumentError(str(exc)) from exc
+        frontmatter = text.split("---", 2)[1] if text.startswith("---") else ""
+        active = bool(re.search(r"(?m)^status:\s*(?:in_progress|active)\s*$", frontmatter))
+        if active:
+            semantic_record = parse_semantic_record(text)
+    try:
+        declared_paths = frozenset(item.path for item in parse_inputs(text))
+        value_domains: tuple[ValueDomain, ...] = (
+            ()
+            if plan or semantic is None
+            else parse_value_domains(
+                text,
+                workspace_root=workspace_root,
+                declared_paths=declared_paths,
+                semantic_ids=frozenset(semantic.ids),
+            )
+        )
+    except (FingerprintError, ValueDomainError) as exc:
+        raise DocumentError(str(exc)) from exc
+    evidence = parse_evidence(
+        text, workspace_root=workspace_root, semantic=semantic
+    )
+    receipts = parse_receipts(text, plan=plan)
+    policy_map = {policy.gate: policy for policy in policies}
+    receipt_map = {receipt.gate: receipt for receipt in receipts}
+    if set(receipt_map) != set(policy_map):
+        raise DocumentError(
+            f"receipt gates mismatch: expected={list(policy_map)} found={list(receipt_map)}"
+        )
+    gate_order = tuple(policy_map)
+    seen_evidence: set[str] = set()
+    terminal_seen = True
+    for policy in policies:
+        receipt = receipt_map[policy.gate]
+        allowed_statuses = {"pending", "blocked"} | set(policy.terminal_statuses)
+        if receipt.status not in allowed_statuses:
+            raise DocumentError(
+                f"receipt {policy.gate}: invalid status {receipt.status!r}"
+            )
+        current = fingerprint_inputs(
+            document=document,
+            profile=profile,
+            receipt_contract=receipt_contract,
+            adapters=adapters,
+            workspace_root=workspace_root,
+            include_types=policy.invalidation_inputs,
+        ).sha256
+        if receipt.status == "pending":
+            if any(
+                value is not None
+                for value in (
+                    receipt.evidence_id,
+                    receipt.input_fingerprint,
+                    receipt.recorded_at,
+                )
+            ):
+                raise DocumentError(
+                    f"receipt {policy.gate}: pending row must contain only pending values"
+                )
+            terminal_seen = False
+            continue
+        if (
+            receipt.evidence_id is None
+            or receipt.input_fingerprint is None
+            or receipt.recorded_at is None
+        ):
+            raise DocumentError(
+                f"receipt {policy.gate}: nonpending status requires complete inline evidence"
+            )
+        gate_evidence = evidence.get(receipt.evidence_id)
+        if gate_evidence is None:
+            raise DocumentError(
+                f"receipt {policy.gate}: missing evidence {receipt.evidence_id!r}"
+            )
+        if receipt.evidence_id in seen_evidence:
+            raise DocumentError(
+                f"evidence {receipt.evidence_id!r} cannot satisfy multiple receipts"
+            )
+        seen_evidence.add(receipt.evidence_id)
+        if gate_evidence.gate != policy.gate:
+            raise DocumentError(
+                f"evidence {gate_evidence.id}: gate does not match receipt"
+            )
+        if (
+            gate_evidence.input_fingerprint != receipt.input_fingerprint
+            or receipt.input_fingerprint != current
+        ):
+            raise DocumentError(
+                f"receipt {policy.gate}: stale input fingerprint; expected {current}, "
+                f"found {receipt.input_fingerprint}"
+            )
+        if receipt.status in policy.terminal_statuses and not terminal_seen:
+            raise DocumentError(
+                f"receipt {policy.gate}: later gate cannot be terminal before predecessors"
+            )
+        expected_kinds: dict[str, frozenset[str]] = {
+            "matrix/v1": frozenset({"basis"}),
+            "architecture/v1": frozenset({"review"}),
+            "red/v1": frozenset({"command", "rationale"}),
+            "review/v1": frozenset({"review"}),
+            "handoff/v1": frozenset({"handoff"}),
+            "intent/v1": frozenset({"basis"}),
+            "evidence/v1": frozenset({"basis"}),
+            "plan-shape/v1": frozenset({"basis"}),
+            "roadmap-shape/v1": frozenset({"basis", "rationale"}),
+            "milestone-shape/v1": frozenset({"basis", "rationale"}),
+            "decomposition/v1": frozenset({"basis"}),
+        }
+        allowed_kinds = expected_kinds.get(policy.gate, frozenset({"command"}))
+        if gate_evidence.kind not in allowed_kinds:
+            raise DocumentError(
+                f"evidence {gate_evidence.id}: kind {gate_evidence.kind!r} cannot satisfy {policy.gate}"
+            )
+        if (
+            policy.gate == "matrix/v1"
+            and receipt.status in policy.terminal_statuses
+            and value_domains
+        ):
+            mappings = gate_evidence.data.get("mappings")
+            missing = {domain.id for domain in value_domains} - set(
+                mappings if isinstance(mappings, list) else []
+            )
+            if missing:
+                raise DocumentError(
+                    f"matrix/v1 evidence misses persisted contracts {sorted(missing)}"
+                )
+        if receipt.status in policy.terminal_statuses and gate_evidence.kind == "review":
+            review = gate_evidence.data
+            verdict = review.get("terminalVerdict")
+            if verdict != "PASS":
+                raise DocumentError(
+                    f"receipt {policy.gate}: terminal pass requires review verdict PASS"
+                )
+            if review.get("independent") is not True or review.get(
+                "sessionUuid"
+            ) == review.get("authorSessionUuid"):
+                raise DocumentError(
+                    f"receipt {policy.gate}: invalid independent-session provenance"
+                )
+            if policy.gate == "architecture/v1" and not plan:
+                expected_value_domain_ids = {domain.id for domain in value_domains}
+                for field in (
+                    "inventoryComplete",
+                    "decisionsResolved",
+                    "callerCoverageComplete",
+                ):
+                    if review.get(field) is not True:
+                        raise DocumentError(
+                            f"architecture/v1 pass requires {field}"
+                        )
+                contradictions = review.get("contradictions")
+                if contradictions != []:
+                    raise DocumentError(
+                        "architecture/v1 pass requires no unresolved contradictions"
+                    )
+                if review.get("discoveryComplete") is not True:
+                    raise DocumentError(
+                        "architecture/v1 pass requires discoveryComplete"
+                    )
+                if review.get("persistedContractChange") is not bool(value_domains):
+                    raise DocumentError(
+                        "architecture/v1 persistedContractChange contradicts the persisted-contract matrix"
+                    )
+                value_domain_mappings = review.get("persistedContractMappings")
+                if (
+                    not isinstance(value_domain_mappings, list)
+                    or set(value_domain_mappings) != expected_value_domain_ids
+                    or len(value_domain_mappings) != len(expected_value_domain_ids)
+                ):
+                    raise DocumentError(
+                        "architecture/v1 persistedContractMappings must exactly cover the persisted-contract matrix"
+                    )
+                axes = review.get("impactAxes")
+                if not isinstance(axes, dict) or not impact_axes <= set(axes):
+                    raise DocumentError(
+                        "architecture/v1 pass lacks adapter impact-axis coverage"
+                    )
+                for field in (
+                    "authoritySources",
+                    "productionPaths",
+                    "directCallers",
+                    "matrixMappings",
+                    "proofMappings",
+                ):
+                    value = review.get(field)
+                    if not isinstance(value, list) or not value:
+                        raise DocumentError(
+                            f"architecture/v1 pass requires {field}"
+                        )
+                verification = review.get("verification")
+                if not isinstance(verification, dict):
+                    raise DocumentError(
+                        "architecture/v1 pass requires capability-based verification evidence"
+                    )
+                if architecture_verification_schema is None or architecture_verification_contract is None:
+                    raise DocumentError(
+                        "architecture/v1 pass requires the routed verification contract"
+                    )
+                if verification.get("inputFingerprint") != gate_evidence.input_fingerprint:
+                    raise DocumentError(
+                        "architecture/v1 verification fingerprint does not match gate evidence"
+                    )
+                try:
+                    validate_architecture_verification_result(
+                        architecture_verification_contract,
+                        architecture_verification_schema,
+                        verification,
+                        expected_value_domain_ids=expected_value_domain_ids,
+                    )
+                except ArchitectureVerificationError as exc:
+                    raise DocumentError(str(exc)) from exc
+        if receipt.status == "blocked" or receipt.status not in policy.terminal_statuses:
+            terminal_seen = False
+    if semantic is not None and semantic_record is not None:
+        _validate_contract_changes(
+            text,
+            current=semantic,
+            record=semantic_record,
+            receipts=receipts,
+            gate_order=gate_order,
+        )
+        if any(
+            evidence_id not in evidence
+            or evidence[evidence_id].gate != "red/v1"
+            for evidence_id in semantic_record.red_evidence_ids
+        ):
+            raise DocumentError(
+                "active task cannot lose its recorded RED evidence"
+            )

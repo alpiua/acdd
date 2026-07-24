@@ -1,0 +1,53 @@
+apiVersion: acdd/adapter/v1
+kind: adapter
+id: example-planner-task/v1
+role: task
+provides: [task_read, task_write, impact]
+procedure:
+  - Read one active Planner task, its dependencies, ordered receipts, and linked evidence.
+  - Update only task-owned execution state and receipts after verified gates.
+  - Keep roadmap, phase, milestone, and plan backlinks consistent.
+  - Classify impact against the selected domain variant; require no with domains and proof or yes with domains owner change propagation mitigation authorization and status.
+authority:
+  tasks: planner/roadmap/phase-*/tasks/*.md
+  currentExecution: planner/roadmap/CURRENT_EXECUTION.md
+  evidence: bound task current ACDD snapshot
+  impact:
+    selectedVariant: software-delivery
+    domains: [deployment, api-compatibility, operations]
+    variants:
+      software-delivery: [deployment, api-compatibility, operations]
+      data-platform: [data-migration, retention, lineage, recovery]
+      regulated-service: [security, privacy, compliance, auditability]
+      product-change: [customer-experience, accessibility, support, analytics]
+inputAuthorities:
+  bound-document: ["**"]
+  dependency: ["**"]
+  environment: ["**"]
+  accepted-review-findings: ["**"]
+gateProcedures:
+  architecture/v1:
+    operation: architecture-verify
+    contract: ../../task/architecture-verification.yaml
+    runtime: pi
+    launcher:
+      kind: command
+      target: pi
+      arguments: [--print, --session-id, "{sessionUuid}", --provider, openai-codex, --model, gpt-5.6-sol, --thinking, low, --tools, "read,grep,find,ls,mcp"]
+      promptTransport: final-argument
+    authoritativeSessions: 1
+    reviewRoot: workspace
+    commandCwd: implementation-repository
+    discoveryMethods:
+      exactText: {capability: source_map, tools: [ctx_search]}
+      structural: {capability: structural_search, tools: [ast_grep_search]}
+      dependency: {capability: impact, tools: [code_map_query]}
+    model: {provider: openai-codex, modelId: gpt-5.6-sol, reasoning: low}
+    toolEnvelope:
+      admit: [read, grep, find, ls, mcp]
+      deny: [bash, edit, write, pi_review_agents]
+constraints:
+  - Bind exactly one active task.
+  - Preserve gate order and record receipts from current evidence.
+  - Update the current-execution queue before changing task lifecycle status.
+  - When deployment is affected, require rollout and rollback details in mitigation.

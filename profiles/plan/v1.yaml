@@ -1,0 +1,23 @@
+---
+apiVersion: acdd/plan/v1
+kind: planning-profile
+id: acdd/plan/v1
+title: Evidence-bound planning set
+capabilityContract: ../../contracts/plan/v1.yaml
+adapterContract: ../../contracts/adapter/v1.yaml
+receiptContract: ../../contracts/receipt/plan/v1.yaml
+routing: ../../routing/plan/v1.yaml
+gates:
+  - {id: intent/v1, queue: 10, name: Intent, purpose: Bind one primary plan and bounded planning set., capabilities: [plan_read, plan_write], guidance: {skill: acdd-plan, prompt: Record outcome mode scope non-goals area and lifecycle status.}}
+  - {id: evidence/v1, queue: 20, name: Evidence reconciliation, purpose: Reconcile planning state live code documentation prior decisions and contradictions., capabilities: [plan_read, evidence_map, plan_write], guidance: {skill: acdd-plan, prompt: Record evidence sources contradictions and resolutions.}}
+  - {id: architecture/v1, queue: 30, name: Architecture coherence, purpose: Establish and independently verify owners paths authority lifecycle failure dependencies security impact domains and caller burden., capabilities: [evidence_map, architecture_map, impact, independent_review, review_execution, plan_write], guidance: {skill: acdd-plan, prompt: Record coherent architecture change radius and impact for every declared roadmap phase milestone and task artifact, then run the plan adapter inbound verifier to a terminal result.}}
+  - {id: plan-shape/v1, queue: 40, name: Plan shape, purpose: Validate plan metadata owner binding phase span impact propagation and execution contract., capabilities: [impact, validate_plan, plan_write], guidance: {skill: acdd-plan, prompt: Validate owner binding outcome evidence decisions dependencies security impact promotion and blockers.}}
+  - {id: roadmap-shape/v1, queue: 50, name: Roadmap shape, purpose: Validate roadmap phase membership ordering dependencies impact propagation backlinks and execution claims., capabilities: [impact, validate_roadmap, plan_write], guidance: {skill: acdd-plan, prompt: Validate roadmap and phase impact propagation or record a plan-owned inapplicable rationale.}}
+  - {id: milestone-shape/v1, queue: 60, name: Milestone shape, purpose: Validate phase-owned milestones architecture slices task membership impact propagation gates backlinks and evidence-bound closure., capabilities: [impact, validate_milestone, plan_write], guidance: {skill: acdd-plan, prompt: Validate milestone and task impact propagation or record a plan-owned inapplicable rationale.}}
+  - {id: decomposition/v1, queue: 70, name: Decomposition, purpose: Produce executable inactive milestone-bound task drafts., capabilities: [validate_decomposition, plan_write], guidance: {skill: acdd-plan, prompt: Record milestone owner prerequisites expected evidence and resolved implementation decisions.}}
+  - {id: review/v1, queue: 80, name: Independent planning review, purpose: Challenge the complete planning set against live evidence., capabilities: [independent_review, review_execution, plan_write], guidance: {skill: acdd-plan, prompt: Run the adapter-selected review mode through terminal completion and resolve accepted findings across the complete planning set.}}
+  - {id: publish/v1, queue: 90, name: Publish, purpose: Validate links metadata shape drift and refresh adapter-owned derived state., capabilities: [publish_plan, plan_write], guidance: {skill: acdd-plan, prompt: Publish only current blocker-free planning artifacts.}}
+  - {id: handoff/v1, queue: 100, name: Handoff, purpose: Record receipts blockers changed artifacts and task-flow candidates., capabilities: [plan_read, plan_write], guidance: {skill: acdd-plan, prompt: Record final receipts and inactive acdd/task/v1 candidates.}}
+closure:
+  requiredGates: [intent/v1, evidence/v1, architecture/v1, plan-shape/v1, roadmap-shape/v1, milestone-shape/v1, decomposition/v1, review/v1, publish/v1, handoff/v1]
+  generatedRequiredGates: true

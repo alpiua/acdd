@@ -1,0 +1,31 @@
+---
+apiVersion: acdd/receipt/v1
+kind: receipt-contract
+requiredFields: [gate, status, evidence, inputFingerprint, recordedAt]
+pendingStatus: pending
+blockingStatus: blocked
+fingerprintPattern: '^sha256:[0-9a-f]{64}$'
+recordedAtPattern: '^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$'
+invalidationInputs: [source, test, configuration, generated, dependency, environment, accepted-review-findings]
+gatePolicies:
+  intent/v1: {evidenceMode: basis, invalidationInputs: [dependency]}
+  evidence/v1: {evidenceMode: basis, invalidationInputs: [source, test, configuration, generated, dependency, environment, accepted-review-findings]}
+  architecture/v1: {evidenceMode: basis, invalidationInputs: [source, test, configuration, generated, dependency, environment, accepted-review-findings]}
+  plan-shape/v1: {evidenceMode: basis, invalidationInputs: [source, dependency, accepted-review-findings]}
+  roadmap-shape/v1: {evidenceMode: basis, invalidationInputs: [source, dependency, accepted-review-findings]}
+  milestone-shape/v1: {evidenceMode: basis, invalidationInputs: [source, dependency, accepted-review-findings]}
+  decomposition/v1: {evidenceMode: basis, invalidationInputs: [source, dependency, accepted-review-findings]}
+  review/v1: {evidenceMode: live, invalidationInputs: [source, test, configuration, generated, dependency, environment, accepted-review-findings]}
+  publish/v1: {evidenceMode: live, invalidationInputs: [source, test, configuration, generated, dependency, environment, accepted-review-findings]}
+  handoff/v1: {evidenceMode: live, invalidationInputs: [source, test, configuration, generated, dependency, environment, accepted-review-findings]}
+terminalStatuses:
+  intent/v1: [pass]
+  evidence/v1: [pass]
+  architecture/v1: [pass]
+  plan-shape/v1: [pass]
+  roadmap-shape/v1: [pass, inapplicable]
+  milestone-shape/v1: [pass, inapplicable]
+  decomposition/v1: [pass]
+  review/v1: [pass]
+  publish/v1: [pass]
+  handoff/v1: [pass]

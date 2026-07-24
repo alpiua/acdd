@@ -1,0 +1,16 @@
+---
+apiVersion: acdd/task/v1
+kind: gate-routing
+id: acdd/task/routing/v1
+profile: ../../profiles/task/v1.yaml
+architectureVerificationSchema: ../../contracts/architecture-verification/v1.yaml
+routes:
+  matrix/v1: {adapters: [task, implementation], executorAdapter: task, receipt: coverage matrix and blockers}
+  architecture/v1: {adapters: [task, implementation], executorAdapter: task, receipt: independent architecture decision}
+  red/v1: {adapters: [task, implementation], executorAdapter: implementation, receipt: expected failing proof}
+  runtime/v1: {adapters: [task, implementation], executorAdapter: implementation, receipt: focused production-path proof}
+  parity/v1: {adapters: [task, implementation], executorAdapter: implementation, receipt: applicable parity evidence}
+  security/v1: {adapters: [task, implementation], executorAdapter: implementation, receipt: applicable security evidence}
+  release/v1: {adapters: [task, implementation], executorAdapter: implementation, receipt: exact release command result}
+  review/v1: {adapters: [task, implementation], executorAdapter: implementation, receipt: independent terminal review}
+  handoff/v1: {adapters: [task, implementation], executorAdapter: task, receipt: checkpoint with empty blockers}

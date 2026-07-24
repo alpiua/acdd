@@ -1,0 +1,35 @@
+---
+apiVersion: acdd/architecture-verification/v1
+kind: architecture-verification
+id: example/architecture-verification/v1
+inspectors:
+  - id: contract
+    covers: [contract, transport, red-mappings, persisted-contracts]
+    authority: [task contract, public types, transport schema, persisted-contract definitions, RED proof definitions]
+  - id: authority
+    covers: [authority, identity, fail-before-io]
+    authority: [authorization policy, request identity, validation order]
+  - id: callers
+    covers: [direct-callers, alternate-paths, retry, cache]
+    authority: [production callers, alternate entry points, retry and cache lifecycle]
+  - id: persistence
+    covers: [lifecycle, backend-parity, persisted-contracts]
+    authority: [producers, writers, schemas, migrations, readers, production backends, lifecycle proofs]
+inspectorPolicy:
+  readOnly: true
+  mayWriteTask: false
+  mayIssueReceipt: false
+  mayReturnVerdict: false
+  inputFingerprint: shared
+coordinatorPolicy:
+  authoritativeSessions: 1
+  requireEveryPartition: true
+  requireFindingReconciliation: true
+  requirePersistedContractReconciliation: true
+  verdictOwner: coordinator
+receiptValidation:
+  requiredCapabilities: [independent_review, review_execution]
+  requireIsolated: true
+  requireReadOnly: true
+  requireCompleteCoverage: true
+  equivalentRuntimesAllowed: true

@@ -1,0 +1,13 @@
+apiVersion: acdd/adapter/v1
+kind: adapter
+id: example-audit/v1
+role: audit
+provides: [audit_publish]
+procedure:
+  - Validate one terminal owner-review result.
+  - Publish one bounded final report under the audit owner's authority.
+authority:
+  reports: audit/reviews/<kind>/<year>/<audit-id>.md
+constraints:
+  - Bind every report to its subject revision and ACDD input fingerprint.
+  - Publish selected terminal code-review and plan-review conclusions.

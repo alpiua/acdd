@@ -1,0 +1,16 @@
+---
+apiVersion: acdd/plan/v1
+kind: gate-routing
+id: acdd/plan/routing/v1
+profile: ../../profiles/plan/v1.yaml
+routes:
+  intent/v1: {adapters: [plan], executorAdapter: plan, receipt: bound planning intent}
+  evidence/v1: {adapters: [plan], executorAdapter: plan, receipt: reconciled evidence and contradictions}
+  architecture/v1: {adapters: [plan], executorAdapter: plan, receipt: architecture coherence}
+  plan-shape/v1: {adapters: [plan], executorAdapter: plan, receipt: primary plan shape}
+  roadmap-shape/v1: {adapters: [plan], executorAdapter: plan, receipt: roadmap shape or rationale}
+  milestone-shape/v1: {adapters: [plan], executorAdapter: plan, receipt: milestone shape or rationale}
+  decomposition/v1: {adapters: [plan], executorAdapter: plan, receipt: inactive executable task drafts}
+  review/v1: {adapters: [plan], executorAdapter: plan, receipt: independent planning-set review}
+  publish/v1: {adapters: [plan], executorAdapter: plan, receipt: validated published planning set}
+  handoff/v1: {adapters: [plan], executorAdapter: plan, receipt: receipts blockers artifacts and task candidates}

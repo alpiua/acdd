@@ -1,0 +1,64 @@
+apiVersion: acdd/adapter/v1
+kind: adapter
+id: example-planner-plan/v1
+role: plan
+provides: [plan_read, plan_write, evidence_map, architecture_map, impact, validate_plan, validate_roadmap, validate_milestone, validate_decomposition, publish_plan, independent_review, review_execution]
+procedure:
+  - Read one primary plan, its declared planning set, canonical Planner owners, and live evidence.
+  - Validate roadmap to phase to milestone to task membership and plan ownership independently.
+  - Refresh Planner-derived indexes only after the declared planning set validates.
+  - Record impact for every declared roadmap phase milestone task and plan artifact; propagate approved impact to inactive task drafts.
+authority:
+  plans: planner/plans/**/*.md
+  roadmaps: planner/roadmap/*.md
+  phases: planner/roadmap/phase-*/phase-*.md
+  milestones: planner/roadmap/phase-*/milestone.md
+  tasks: planner/roadmap/phase-*/tasks/*.md
+  currentExecution: read-only
+  impact:
+    selectedVariant: software-delivery
+    domains: [deployment, api-compatibility, operations]
+    variants:
+      software-delivery: [deployment, api-compatibility, operations]
+      data-platform: [data-migration, retention, lineage, recovery]
+      regulated-service: [security, privacy, compliance, auditability]
+      product-change: [customer-experience, accessibility, support, analytics]
+inputAuthorities:
+  bound-document: ["**"]
+  source: ["**"]
+  test: ["**"]
+  configuration: ["**"]
+  generated: ["**"]
+  dependency: ["**"]
+  environment: ["**"]
+  accepted-review-findings: ["**"]
+gateProcedures:
+  architecture/v1:
+    operation: architecture-verify
+    runtime: pi
+    launcher:
+      kind: command
+      target: pi
+      arguments: [--print, --session-id, "{sessionUuid}", --provider, openai-codex, --model, gpt-5.6-sol, --thinking, low, --tools, "read,grep,find,ls,mcp"]
+      promptTransport: final-argument
+    toolEnvelope:
+      admit: [read, grep, find, ls, mcp]
+      deny: [bash, edit, write, pi_review_agents]
+    scope: bounded architecture question
+  review/v1:
+    operation: closure-plan-review
+    runtime: pi-review-agents
+    launcher:
+      kind: tool
+      target: pi_review_agents
+      arguments: []
+      promptTransport: parameters
+    toolEnvelope:
+      admit: [pi_review_agents]
+      deny: [write, edit]
+    presentation: overview
+    scope: complete declared planning set
+constraints:
+  - Bind each plan to exactly one roadmap, phase, milestone, or task owner and declare its phase span.
+  - Declare every changed planning artifact in the planning set.
+  - Publish task drafts with planning status and promote them through a later task flow.

@@ -1,0 +1,56 @@
+apiVersion: acdd/adapter/v1
+kind: adapter
+id: example-reviewer-plan/v1
+role: plan
+provides: [plan_read, plan_write, evidence_map, architecture_map, impact, validate_plan, validate_roadmap, validate_milestone, validate_decomposition, publish_plan, independent_review, review_execution]
+procedure:
+  - Read one primary plan and its complete declared planning set.
+  - Use isolated inbound verification for the bounded architecture gate.
+  - Use terminal overview review after plan evidence and shape settle.
+authority:
+  planningSet: owner roadmap phase milestone task and plan artifacts
+  currentExecution: read-only
+  impact:
+    domains: [deployment, data-migration, api-compatibility, security-compliance, operations]
+inputAuthorities:
+  bound-document: ["**"]
+  source: ["**"]
+  test: ["**"]
+  configuration: ["**"]
+  generated: ["**"]
+  dependency: ["**"]
+  environment: ["**"]
+  accepted-review-findings: ["**"]
+gateProcedures:
+  architecture/v1:
+    operation: architecture-verify
+    runtime: pi
+    launcher:
+      kind: command
+      target: pi
+      arguments: [--print, --session-id, "{sessionUuid}", --provider, openai-codex, --model, gpt-5.6-sol, --thinking, low, --tools, "read,grep,find,ls,mcp"]
+      promptTransport: final-argument
+    discoveryMethods:
+      exactText: {capability: source_map, tools: [ctx_search]}
+      structural: {capability: structural_search, tools: [ast_grep_search]}
+      dependency: {capability: impact, tools: [code_map_query]}
+    toolEnvelope:
+      admit: [read, grep, find, ls, mcp]
+      deny: [bash, edit, write, pi_review_agents]
+  review/v1:
+    operation: closure-plan-review
+    runtime: pi-review-agents
+    launcher:
+      kind: tool
+      target: pi_review_agents
+      arguments: []
+      promptTransport: parameters
+    presentation: overview
+    scope: complete declared planning set
+    toolEnvelope:
+      admit: [pi_review_agents, ctx_search, ast_grep_search, code_map_query]
+      deny: [write, edit]
+constraints:
+  - Treat runtime as provenance and invoke launcher.target.
+  - Never modify active task or current-execution state from the planning flow.
+  - Do not require ctx_impact when code_map_query operation impact is available.

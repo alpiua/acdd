@@ -1,0 +1,44 @@
+apiVersion: acdd/adapter/v1
+kind: adapter
+id: example-reviewer-task/v1
+role: task
+provides: [task_read, task_write, impact]
+procedure:
+  - Read one bound task and its current architecture evidence.
+  - Launch one isolated read-only inbound verifier from the concrete launcher.
+  - Record capability receipts and the coordinator verdict in the bound task.
+authority:
+  task: owner task state and gate receipts
+  impact:
+    domains: [deployment, data-migration, api-compatibility, security-compliance, operations]
+inputAuthorities:
+  bound-document: ["**"]
+  dependency: ["**"]
+  environment: ["**"]
+  accepted-review-findings: ["**"]
+gateProcedures:
+  architecture/v1:
+    operation: architecture-verify
+    contract: ../../task/architecture-verification.yaml
+    runtime: pi
+    launcher:
+      kind: command
+      target: pi
+      arguments: [--print, --session-id, "{sessionUuid}", --provider, openai-codex, --model, gpt-5.6-sol, --thinking, low, --tools, "read,grep,find,ls,mcp"]
+      promptTransport: final-argument
+    authoritativeSessions: 1
+    reviewRoot: workspace
+    commandCwd: implementation-repository
+    discoveryMethods:
+      exactText: {capability: source_map, tools: [ctx_search]}
+      structural: {capability: structural_search, tools: [ast_grep_search]}
+      dependency: {capability: impact, tools: [code_map_query]}
+    model: {provider: openai-codex, modelId: gpt-5.6-sol, reasoning: low}
+    toolEnvelope:
+      admit: [read, grep, find, ls, mcp]
+      deny: [bash, edit, write, pi_review_agents]
+constraints:
+  - Bind exactly one task.
+  - Treat runtime as provenance and invoke launcher.target.
+  - Require one complete discovery receipt per partition.
+  - A truncated Code Map impact result forbids PASS until the query is widened.

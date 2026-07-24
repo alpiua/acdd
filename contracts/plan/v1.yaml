@@ -1,0 +1,17 @@
+---
+apiVersion: acdd/plan/v1
+kind: capability-contract
+id: acdd/plan/capabilities/v1
+capabilities:
+  plan_read: {purpose: Read the primary plan and declared planning set., providedBy: plan-adapter}
+  plan_write: {purpose: Update only declared planning artifacts and receipts., providedBy: plan-adapter}
+  evidence_map: {purpose: Reconcile planning state live implementation documentation decisions and contradictions., providedBy: plan-adapter}
+  architecture_map: {purpose: Establish owners paths dependencies failure and security contours., providedBy: plan-adapter}
+  impact: {purpose: Classify and propagate affected domains across the bound roadmap phase milestone task planning set., providedBy: plan-adapter}
+  validate_plan: {purpose: Validate plan shape owner binding and declared cross-phase span., providedBy: plan-adapter}
+  validate_roadmap: {purpose: Validate roadmap phase membership ordering dependencies and backlinks., providedBy: plan-adapter}
+  validate_milestone: {purpose: Validate phase-owned milestones and their task membership closure and backlinks., providedBy: plan-adapter}
+  validate_decomposition: {purpose: Validate inactive executable task drafts bound to milestones., providedBy: plan-adapter}
+  publish_plan: {purpose: Validate links shape drift and refresh adapter-owned derived state., providedBy: plan-adapter}
+  independent_review: {purpose: Independently challenge the complete planning set., providedBy: plan-adapter}
+  review_execution: {purpose: Execute the planning-owner review procedure to a terminal gate receipt., providedBy: plan-adapter}

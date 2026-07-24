@@ -1,0 +1,48 @@
+apiVersion: acdd/adapter/v1
+kind: adapter
+id: example-codebase-implementation/v1
+role: implementation
+provides: [source_map, docs_search, structural_search, run_gate, independent_review, review_execution]
+procedure:
+  - Load the closest repository instructions before inspecting or changing code.
+  - Map source, tests, configuration, documentation, generated artifacts, and reverse dependencies.
+  - Use structural search for code relationships and exact search for paths, symbols, and residuals.
+  - Run repository-owned tests, static checks, security checks, and generation drift checks.
+authority:
+  source: src/**
+  tests: tests/**
+  configuration: config/**
+  documentation: docs/**
+  generated: generated/**
+  commands: repository-owned package scripts and test runners
+inputAuthorities:
+  source: ["**"]
+  test: ["**"]
+  configuration: ["**"]
+  generated: ["**"]
+  dependency: ["**"]
+  environment: ["**"]
+  accepted-review-findings: ["**"]
+gateProcedures:
+  architecture/v1:
+    reference: repository architecture procedure
+    sourceMap: [src/**, tests/**, config/**]
+    callerPaths: [src/**]
+    backendPaths: [src/**]
+  review/v1:
+    operation: closure-code-review
+    runtime: pi-review-agents
+    launcher:
+      kind: tool
+      target: pi_review_agents
+      arguments: []
+      promptTransport: parameters
+    presentation: overview
+    trigger: current source tests configuration and release proofs
+    toolEnvelope:
+      admit: [pi_review_agents, ctx_search, ast_grep_search, code_map_query]
+      deny: [write, edit]
+constraints:
+  - Replace example paths and commands with canonical codebase owners.
+  - Preserve unrelated worktree changes.
+  - Record unavailable infrastructure as evidence; do not convert it into a passing gate.

@@ -1,0 +1,63 @@
+---
+apiVersion: acdd/plan/simple/v1
+kind: plan-shape-contract
+id: acdd/plan/simple/v1
+title: Self-contained milestone plan with embedded tasks
+binding:
+  ownerKind: milestone
+  ownerPath: self
+  ownerReference: required
+  phaseSpan: []
+planningSet:
+  primary: required
+  roadmap: []
+  phases: []
+  milestones: []
+  taskDrafts: []
+requiredSections:
+  - Planning intent
+  - Planning-set manifest
+  - Evidence and contradictions
+  - Architecture coherence
+  - Impact
+  - Plan shape
+  - Roadmap shape
+  - Milestone shape
+  - Tasks
+  - Decomposition
+  - ACDD plan receipts
+  - Blockers
+  - Handoff
+embeddedTasks:
+  heading: Tasks
+  identity:
+    source: level-three-heading
+    pattern: '^[A-Z][A-Z0-9]*-[0-9]+ — .+$'
+    unique: true
+  requiredFields: [Status, Outcome, Scope, Prerequisites, Acceptance, Evidence]
+  optionalFields: [Security, Non-goals, Dependencies, Blockers, ACDD task receipts]
+  statuses: [todo]
+  planningStatuses: [todo]
+  prerequisites:
+    noneValue: none
+    references: embedded-task-id
+    direction: earlier-only
+  rules:
+    - Every task belongs to the milestone named by plan_binding.owner_ref.
+    - Tasks are ordered executable slices rather than categories or separate planning artifacts.
+    - Planning publishes tasks with status todo.
+    - A later acdd/task/v1 session promotes one task into execution.
+    - Execution status and closure evidence belong to the later bound acdd/task/v1 task.
+gates:
+  roadmapShape:
+    status: inapplicable
+    rationaleOwner: primary-plan
+  milestoneShape:
+    validates: [self-binding, embedded-task-membership, embedded-task-closure]
+  decomposition:
+    validates: [task-identity, required-fields, prerequisite-order, planning-status]
+constraints:
+  - The primary plan is the only planning artifact required by this shape.
+  - The plan's milestone section provides milestone ownership for embedded tasks.
+  - Owner kinds remain roadmap phase milestone and task.
+  - Owner adapters preserve embedded task semantics while adding domain evidence and publication procedures.

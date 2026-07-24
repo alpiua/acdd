@@ -1,0 +1,70 @@
+apiVersion: acdd/adapter/v1
+kind: adapter
+id: example-linear-plan/v1
+role: plan
+provides: [plan_read, plan_write, evidence_map, architecture_map, impact, validate_plan, validate_roadmap, validate_milestone, validate_decomposition, publish_plan, independent_review, review_execution]
+procedure:
+  - Read the bound Initiative, Projects, Project Milestones, Issues, linked plan, and live evidence.
+  - Preserve roadmap to phase to milestone to task membership while validating the planning set.
+  - Publish bidirectional links and keep generated task drafts inactive.
+  - Record impact for every declared Initiative Project Project Milestone Issue and linked plan artifact; propagate approved impact to inactive task drafts.
+authority:
+  roadmap: one bound Linear Initiative
+  phases: Projects belonging to the bound Initiative
+  milestones: Project Milestones belonging to the bound Projects
+  tasks: Issues declared in the planning set
+  plans: linked documents with one canonical owner and an explicit phase span
+  impact:
+    selectedVariant: product-delivery
+    domains: [customer-experience, delivery-schedule, support, analytics]
+    variants:
+      product-delivery: [customer-experience, delivery-schedule, support, analytics]
+      engineering-change: [deployment, api-compatibility, data-migration, operations]
+      commercial-change: [revenue, pricing, entitlement, customer-communication]
+inputAuthorities:
+  bound-document: ["**"]
+  source: ["**"]
+  test: ["**"]
+  configuration: ["**"]
+  generated: ["**"]
+  dependency: ["**"]
+  environment: ["**"]
+  accepted-review-findings: ["**"]
+externalMappings:
+  linear:
+    roadmap: initiative
+    phase: project
+    milestone: project-milestone
+    task: issue
+    plan: linked-artifact
+gateProcedures:
+  architecture/v1:
+    operation: architecture-verify
+    runtime: pi
+    launcher:
+      kind: command
+      target: pi
+      arguments: [--print, --session-id, "{sessionUuid}", --provider, openai-codex, --model, gpt-5.6-sol, --thinking, low, --tools, "read,grep,find,ls,mcp"]
+      promptTransport: final-argument
+    toolEnvelope:
+      admit: [read, grep, find, ls, mcp]
+      deny: [bash, edit, write, pi_review_agents]
+    scope: bounded architecture coherence of the declared planning set
+  review/v1:
+    operation: closure-plan-review
+    runtime: pi-review-agents
+    launcher:
+      kind: tool
+      target: pi_review_agents
+      arguments: []
+      promptTransport: parameters
+    toolEnvelope:
+      admit: [pi_review_agents]
+      deny: [write, edit]
+    presentation: overview
+    scope: complete linked planning set
+    terminalResult: independent verdict with finding dispositions
+constraints:
+  - Bind plans as linked artifacts with one canonical owner.
+  - Publish task drafts with planning status and promote them through a later task flow.
+  - Use live Linear reads for external state.

@@ -1,0 +1,21 @@
+---
+apiVersion: acdd/architecture-verification-schema/v1
+kind: architecture-verification-schema
+id: acdd/architecture-verification-schema/v1
+maxParallelInspectors: 4
+requiredCapabilities: [independent_review, review_execution]
+inspectorPolicy:
+  readOnly: true
+  mayWriteTask: false
+  mayIssueReceipt: false
+  mayReturnVerdict: false
+  inputFingerprint: shared
+coordinatorPolicy:
+  authoritativeSessions: 1
+  requireEveryPartition: true
+  requireFindingReconciliation: true
+  requirePersistedContractReconciliation: true
+  verdictOwner: coordinator
+partitionRequiredFields: [id, status, inputFingerprint, evidence, findings, discovery, persistedContractMappings]
+partitionForbiddenFields: [receipt, verdict]
+resultRequiredFields: [inputFingerprint, runtime, capabilities, isolated, readOnly, authoritativeSessionUuids, persistedContractIds, partitions, coordinator]

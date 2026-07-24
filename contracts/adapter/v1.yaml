@@ -14,12 +14,35 @@ optional:
   - gateProcedures
   - resources
   - scripts
+  - externalMappings
+  - inputAuthorities
+  - writePolicy
 roles:
-  task: [task_read, task_write]
-  implementation: [source_map, docs_search, structural_search, run_gate]
-  review: [independent_review]
+  task: [task_read, task_write, impact]
+  implementation: [source_map, docs_search, structural_search, run_gate, independent_review, review_execution]
+  plan: [plan_read, plan_write, evidence_map, architecture_map, impact, validate_plan, validate_roadmap, validate_milestone, validate_decomposition, publish_plan, independent_review, review_execution]
+  audit: [audit_publish]
+optionalRoles: [audit]
+writePolicy:
+  defaultAllow: ["**"]
+  protectedDeny: [.agents/**, "**/.agents/**", AGENTS.md, "**/AGENTS.md"]
+  overrideAuthorization: explicit-user-request
 rules:
   - An adapter declares only capabilities implemented by its owner.
   - Procedure, resource, and script paths resolve relative to the adapter file.
+  - A gate runtime is provenance only and is never a tool or executable name.
+  - Every independently executed gate binds a concrete launcher kind target arguments and prompt transport.
+  - Command launchers run through the host command executor; tool launchers invoke the exact bound tool target.
+  - Tool envelopes contain only real tools exposed inside the launched session; they never contain runtime kinds or command executables.
+  - External mappings project canonical ACDD kinds into owner-tool classes without redefining the hierarchy.
   - An adapter may strengthen a gate but may not remove or reorder profile gates.
+  - Every gate route names one executorAdapter selected from its routed adapters.
+  - The executor adapter owns the gate procedure; other routed adapters contribute capabilities and authority only.
+  - The architecture executor binds exact-text, structural-search, and dependency-impact capabilities to actual host tools; profiles and receipts do not require universal tool names.
+  - Runtime provenance is recorded, but architecture PASS is accepted by capability, isolation, read-only, partition-coverage, and single-verdict validation.
+  - Core profiles require impact and terminal independent-review semantics; implementation and plan adapters select their owner review runtime.
+  - Audit adapters publish selected terminal review reports without becoming gate owners.
   - Missing required capability blocks the affected gate.
+  - Inline input paths must match a supplied adapter inputAuthorities pattern.
+  - Protected write paths are denied during an ACDD cycle unless the adapter declares a scoped protectedAllow and the caller confirms an explicit user request for that write.
+  - Adapter deny patterns take precedence over adapter allow patterns and protected-path authorization.

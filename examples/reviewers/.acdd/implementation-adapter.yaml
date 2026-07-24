@@ -1,0 +1,46 @@
+apiVersion: acdd/adapter/v1
+kind: adapter
+id: example-reviewer-implementation/v1
+role: implementation
+provides: [source_map, docs_search, structural_search, run_gate, independent_review, review_execution]
+procedure:
+  - Supply current source, tests, configuration, and release evidence.
+  - Launch terminal review only after implementation evidence settles.
+  - Apply accepted findings through the implementation owner.
+authority:
+  source: src/**
+  tests: tests/**
+  configuration: config/**
+  documentation: docs/**
+  commands: repository-owned gates
+inputAuthorities:
+  source: ["**"]
+  test: ["**"]
+  configuration: ["**"]
+  generated: ["**"]
+  dependency: ["**"]
+  environment: ["**"]
+  accepted-review-findings: ["**"]
+gateProcedures:
+  architecture/v1:
+    reference: repository architecture procedure
+    sourceMap: [src/**, tests/**, config/**]
+    callerPaths: [src/**]
+    backendPaths: [src/**]
+  review/v1:
+    operation: closure-code-review
+    runtime: pi-review-agents
+    launcher:
+      kind: tool
+      target: pi_review_agents
+      arguments: []
+      promptTransport: parameters
+    presentation: overview
+    trigger: current source tests configuration and release proofs
+    toolEnvelope:
+      admit: [pi_review_agents, ctx_search, ast_grep_search, code_map_query]
+      deny: [write, edit]
+constraints:
+  - Treat runtime as provenance and invoke launcher.target.
+  - Keep review read-only; owner code changes occur after the review returns.
+  - Do not require ctx_impact when code_map_query operation impact is available.

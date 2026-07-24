@@ -1,0 +1,71 @@
+apiVersion: acdd/adapter/v1
+kind: adapter
+id: example-jira-plan/v1
+role: plan
+provides: [plan_read, plan_write, evidence_map, architecture_map, impact, validate_plan, validate_roadmap, validate_milestone, validate_decomposition, publish_plan, independent_review, review_execution]
+procedure:
+  - Read the bound Jira hierarchy, linked plan artifact, and live code or documentation evidence.
+  - Translate configured Jira issue types into canonical ACDD kinds without changing their semantics.
+  - Publish backlinks and leave draft work unscheduled.
+  - Record impact for every declared Project Epic Version or Release Story or Task and linked plan artifact; propagate approved impact to inactive task drafts.
+authority:
+  roadmap: one Jira Initiative
+  phases: Epics in the bound Initiative
+  milestones: Versions or Releases associated with the bound Epics
+  tasks: Stories or Tasks declared in the planning set
+  plans: linked pages or documents with one canonical owner and an explicit phase span
+  impact:
+    selectedVariant: release-governance
+    domains: [deployment, rollback, service-operations, customer-communication]
+    variants:
+      release-governance: [deployment, rollback, service-operations, customer-communication]
+      data-change: [data-migration, integrity, retention, recovery]
+      regulated-change: [security, privacy, compliance, auditability]
+inputAuthorities:
+  bound-document: ["**"]
+  source: ["**"]
+  test: ["**"]
+  configuration: ["**"]
+  generated: ["**"]
+  dependency: ["**"]
+  environment: ["**"]
+  accepted-review-findings: ["**"]
+externalMappings:
+  jira:
+    roadmap: initiative
+    phase: epic
+    milestone: version
+    task: story-or-task
+    plan: linked-page
+gateProcedures:
+  architecture/v1:
+    operation: architecture-verify
+    runtime: pi
+    launcher:
+      kind: command
+      target: pi
+      arguments: [--print, --session-id, "{sessionUuid}", --provider, openai-codex, --model, gpt-5.6-sol, --thinking, low, --tools, "read,grep,find,ls,mcp"]
+      promptTransport: final-argument
+    toolEnvelope:
+      admit: [read, grep, find, ls, mcp]
+      deny: [bash, edit, write, pi_review_agents]
+    scope: bounded architecture coherence of the declared planning set
+  review/v1:
+    operation: closure-plan-review
+    runtime: pi-review-agents
+    launcher:
+      kind: tool
+      target: pi_review_agents
+      arguments: []
+      promptTransport: parameters
+    toolEnvelope:
+      admit: [pi_review_agents]
+      deny: [write, edit]
+    presentation: overview
+    scope: complete linked planning set
+    terminalResult: independent verdict with finding dispositions
+constraints:
+  - Use Jira Initiative Epic Version or Release and Story or Task as the canonical projection.
+  - Resolve milestone membership through Version or Release associations.
+  - Resolve hierarchy through native initiative epic project and version links.
+  - Publish task drafts with planning status for later task-flow promotion.

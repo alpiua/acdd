@@ -1,0 +1,14 @@
+---
+apiVersion: acdd/task/v1
+kind: capability-contract
+id: acdd/task/capabilities/v1
+capabilities:
+  task_read: {purpose: Read the selected task and current execution state., providedBy: task-adapter}
+  task_write: {purpose: Record evidence blockers and execution updates for the bound task., providedBy: task-adapter}
+  impact: {purpose: Classify affected domains and bind proof or authorized owner change propagation mitigation and status., providedBy: task-adapter}
+  source_map: {purpose: Establish bounded live owners callers and impact., providedBy: implementation-adapter}
+  docs_search: {purpose: Retrieve task-relevant documentation evidence., providedBy: implementation-adapter}
+  structural_search: {purpose: Verify source claims after orientation., providedBy: implementation-adapter}
+  run_gate: {purpose: Run one exact scoped proof command and return its result., providedBy: implementation-adapter}
+  independent_review: {purpose: Obtain a review independent of the task author., providedBy: implementation-adapter}
+  review_execution: {purpose: Execute the implementation-owner review procedure to a terminal gate receipt., providedBy: implementation-adapter}
