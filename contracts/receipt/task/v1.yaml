@@ -7,6 +7,8 @@ blockingStatus: blocked
 fingerprintPattern: '^sha256:[0-9a-f]{64}$'
 recordedAtPattern: '^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$'
 invalidationInputs: [source, test, configuration, generated, dependency, environment, accepted-review-findings]
+# Receipts have no wall-clock expiry. recordedAt is provenance; fingerprints,
+# contract revision, and declared inputs determine freshness.
 # Successor edges guide targeted re-runs after a gate becomes stale. Fingerprints
 # remain authoritative; unknown/unscoped input classes fail closed.
 successorInvalidation:
@@ -51,7 +53,7 @@ inapplicablePolicy:
 terminalStatuses:
   matrix/v1: [pass]
   architecture/v1: [pass]
-  red/v1: [expected_failure, inapplicable]
+  red/v1: [expected_failure]
   runtime/v1: [pass]
   parity/v1: [pass, inapplicable]
   security/v1: [pass, inapplicable]

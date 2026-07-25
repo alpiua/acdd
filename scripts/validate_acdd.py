@@ -513,7 +513,7 @@ def load_core(profile_path: Path = DEFAULT_PROFILE) -> CoreContract:
         statuses = _string_list(terminal[gate_id], f"receipt {gate_id}.terminalStatuses")
         if api_version in TASK_PROFILE_VERSIONS:
             expected = (
-                ["expected_failure", "inapplicable"]
+                ["expected_failure"]
                 if gate_id == "red/v1"
                 else ["pass", "inapplicable"]
                 if gate_id in {"parity/v1", "security/v1"}
@@ -757,12 +757,32 @@ def _validate_executor_gate_procedures(
                 f"{label}.{gate_id}.discoveryMethods",
             )
             model = procedure.get("model")
-            if model != {
-                "provider": "openai-codex",
-                "modelId": "gpt-5.6-sol",
-                "reasoning": "low",
-            }:
-                raise ContractError("architecture/v1 default model must be openai-codex/gpt-5.6-sol:low")
+            model_fields = {"provider", "modelId", "reasoning"}
+            if not isinstance(model, dict) or set(model) != model_fields:
+                raise ContractError(
+                    "architecture/v1 model must contain provider, modelId, and reasoning"
+                )
+            for field in model_fields:
+                if not isinstance(model[field], str) or not model[field].strip():
+                    raise ContractError(
+                        f"architecture/v1 model.{field} must be a non-empty string"
+                    )
+            arguments = launcher["arguments"]
+            assert isinstance(arguments, list)
+            for flag, field in (
+                ("--provider", "provider"),
+                ("--model", "modelId"),
+                ("--thinking", "reasoning"),
+            ):
+                positions = [index for index, argument in enumerate(arguments) if argument == flag]
+                if len(positions) != 1 or positions[0] + 1 >= len(arguments):
+                    raise ContractError(
+                        f"architecture/v1 launcher must bind {flag} exactly once"
+                    )
+                if arguments[positions[0] + 1] != model[field]:
+                    raise ContractError(
+                        f"architecture/v1 launcher {flag} must match model.{field}"
+                    )
             contract_path = _resolve(
                 owner,
                 procedure.get("contract"),

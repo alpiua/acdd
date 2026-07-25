@@ -25,6 +25,10 @@ comparison answers "must this gate be rerun before closure", so applying it to a
 terminal receipt would invalidate landed proofs whenever an unrelated task edits a
 shared input. Evidence-to-receipt fingerprint agreement is always enforced.
 
+Receipts have no wall-clock expiry. `recordedAt` records provenance, not a TTL.
+The fingerprint, contract revision, and declared inputs determine freshness.
+An owner adapter may require a fresh run for volatile external evidence.
+
 Evidence is validated against the contract revision it was issued under, declared
 as `contractRevision`. It defaults to the current revision, and a task in delivery
 must use the current revision, so a tightened contract cannot be dodged by

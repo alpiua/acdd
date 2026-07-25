@@ -6,6 +6,9 @@ contract against the real system, and only then implementing and releasing it.
 This repository packages that methodology as host-neutral profiles, contracts,
 adapters, validators, skills, and runnable examples.
 
+New to ACDD? Start with the [human walkthrough](docs/getting-started.md).
+Contract authors should also read the [versioning policy](docs/versioning.md).
+
 ACDD is designed for work where “the tests pass” is not enough. A change must
 also have a known owner, production caller, authority boundary, failure
 behavior, propagation path, and current evidence. The workflow makes those
@@ -400,6 +403,8 @@ Receipt contracts define terminal statuses, evidence mode (`basis`, `snapshot`,
 or `live`), invalidating input classes, fingerprint format, and timestamp
 format. The validator computes the canonical snapshot and semantic fingerprint
 in memory; it does not write input manifests or raw review transcripts.
+Receipts have no wall-clock expiry: `recordedAt` is provenance, while the
+fingerprint, contract revision, and declared inputs determine freshness.
 
 ### Architecture verification
 
@@ -426,6 +431,8 @@ unambiguous.
   [`acdd/plan/simple/v1`](contracts/plan/simple/v1.yaml) shape.
 - `scripts/check_markdown_links.py` validates repository-local documentation
   links.
+- `scripts/acdd_metrics.py` summarizes current receipt statuses and completed
+  receipt spans from selected task Markdown paths.
 - `scripts/architecture_verification.py`, `acdd_document.py`,
   `acdd_fingerprint.py`, and `value_domains.py` implement the verification,
   parsing, hashing, and domain-propagation primitives used by the validator.
@@ -453,6 +460,7 @@ python3 scripts/validate_acdd.py \
   --adapter plan=examples/simple-plan/.acdd/plan-adapter.yaml
 python3 scripts/check_simple_plan.py \
   --plan examples/simple-plan/PLAN.md --strict
+python3 scripts/acdd_metrics.py examples/task
 python3 scripts/check_markdown_links.py --root .
 git diff --check
 ```

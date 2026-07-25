@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import copy
 import importlib.util
 import subprocess
 import sys
@@ -130,6 +131,46 @@ def test_example_adapters_cover_routed_capabilities() -> None:
             "plan",
             plan,
             allowed_root=ROOT,
+        )
+
+
+def test_architecture_model_is_adapter_selected_and_launcher_bound() -> None:
+    core = MODULE.load_core(ROOT / "profiles" / "task" / "v1.yaml")
+    adapter_path = ROOT / "examples" / "planner" / ".acdd" / "task-adapter.yaml"
+    adapter = MODULE.load_adapter(adapter_path, "task", core, allowed_root=ROOT)
+    procedures = copy.deepcopy(adapter["gateProcedures"])
+    architecture = procedures["architecture/v1"]
+    architecture["model"] = {
+        "provider": "example-provider",
+        "modelId": "example-model",
+        "reasoning": "medium",
+    }
+    arguments = architecture["launcher"]["arguments"]
+    for flag, value in (
+        ("--provider", "example-provider"),
+        ("--model", "example-model"),
+        ("--thinking", "medium"),
+    ):
+        arguments[arguments.index(flag) + 1] = value
+
+    MODULE._validate_executor_gate_procedures(
+        procedures,
+        core,
+        "task",
+        adapter_path,
+        ROOT,
+        "adapter.gateProcedures",
+    )
+
+    arguments[arguments.index("--model") + 1] = "different-model"
+    with pytest.raises(MODULE.ContractError, match="must match model.modelId"):
+        MODULE._validate_executor_gate_procedures(
+            procedures,
+            core,
+            "task",
+            adapter_path,
+            ROOT,
+            "adapter.gateProcedures",
         )
 
 

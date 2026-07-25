@@ -76,6 +76,9 @@ applicability:
 
 def test_contract_allows_machine_checked_inapplicable() -> None:
     core = VALIDATOR.load_core(ROOT / "profiles" / "task" / "v1.yaml")
+    assert core.receipt_contract["terminalStatuses"]["red/v1"] == [
+        "expected_failure",
+    ]
     assert core.receipt_contract["terminalStatuses"]["parity/v1"] == [
         "pass",
         "inapplicable",
@@ -106,6 +109,12 @@ def test_valid_applicability_fixture_parses_and_validates(tmp_path: Path) -> Non
     [
         (
             "runtime/v1",
+            _applicability(),
+            frozenset({"deployment"}),
+            "cannot be marked inapplicable",
+        ),
+        (
+            "red/v1",
             _applicability(),
             frozenset({"deployment"}),
             "cannot be marked inapplicable",
