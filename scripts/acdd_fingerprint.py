@@ -74,6 +74,7 @@ class Diagnostic:
 class DeclaredInput:
     type: str
     path: str
+    classes: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -198,9 +199,10 @@ def parse_inputs(text: str) -> tuple[DeclaredInput, ...]:
     canonical_paths: set[str] = set()
     for index, raw in enumerate(raw_paths):
         item = _mapping(raw, f"ACDD inputs.paths[{index}]")
-        if set(item) != {"type", "path"}:
+        allowed_keys = {"type", "path", "classes"}
+        if not set(item) <= allowed_keys or not {"type", "path"} <= set(item):
             raise FingerprintError(
-                f"ACDD inputs.paths[{index}]: only type and path are allowed"
+                f"ACDD inputs.paths[{index}]: only type, path, and optional classes are allowed"
             )
         input_type = _string(item.get("type"), f"ACDD inputs.paths[{index}].type")
         path = _string(item.get("path"), f"ACDD inputs.paths[{index}].path")
@@ -212,13 +214,24 @@ def parse_inputs(text: str) -> tuple[DeclaredInput, ...]:
             raise FingerprintError(
                 f"ACDD inputs.paths[{index}]: path must be workspace-relative"
             )
+        classes: tuple[str, ...] = ()
+        if "classes" in item:
+            class_list = _string_list(
+                item.get("classes"), f"ACDD inputs.paths[{index}].classes"
+            )
+            for class_name in class_list:
+                if not re.fullmatch(r"[a-z][a-z0-9-]*", class_name):
+                    raise FingerprintError(
+                        f"ACDD inputs.paths[{index}].classes: invalid {class_name!r}"
+                    )
+            classes = tuple(class_list)
         normalized = Path(path).as_posix()
         identity = (input_type, normalized)
         if identity in identities or normalized in canonical_paths:
             raise FingerprintError(f"duplicate input path {normalized!r}")
         identities.add(identity)
         canonical_paths.add(normalized)
-        inputs.append(DeclaredInput(input_type, normalized))
+        inputs.append(DeclaredInput(input_type, normalized, classes))
     return tuple(inputs)
 
 
@@ -304,6 +317,28 @@ def _plan_contract_bytes(text: str) -> bytes:
     return re.sub(r"[ \t]+$", "", body, flags=re.MULTILINE).strip().encode("utf-8")
 
 
+def input_affects_gate(
+    item: DeclaredInput,
+    *,
+    include_types: frozenset[str],
+    include_classes: frozenset[str] | None,
+) -> bool:
+    """Return whether a declared input participates in a gate fingerprint.
+
+    Untagged inputs (no classes) fail closed: they affect every gate that
+    includes their input type. Tagged inputs affect a class-filtered gate only
+    when their classes intersect the gate filter. Gates without a class filter
+    include every path of the selected input types.
+    """
+    if item.type not in include_types:
+        return False
+    if include_classes is None:
+        return True
+    if not item.classes:
+        return True
+    return bool(set(item.classes) & set(include_classes))
+
+
 def fingerprint_inputs(
     *,
     document: Path,
@@ -312,6 +347,7 @@ def fingerprint_inputs(
     adapters: tuple[Path, ...],
     workspace_root: Path,
     include_types: frozenset[str],
+    include_classes: frozenset[str] | None = None,
 ) -> FingerprintResult:
     """Build a canonical snapshot in memory and return only its digest/diagnostics."""
     root = workspace_root.resolve()
@@ -331,11 +367,14 @@ def fingerprint_inputs(
     declared = parse_inputs(text)
     entries: list[SnapshotEntry] = []
     for item in declared:
+        if not input_affects_gate(
+            item, include_types=include_types, include_classes=include_classes
+        ):
+            continue
         path = _resolve_declared(item, root, authorities)
-        if item.type in include_types:
-            entries.append(
-                SnapshotEntry(item.type, item.path, _sha256(path.read_bytes()))
-            )
+        entries.append(
+            SnapshotEntry(item.type, item.path, _sha256(path.read_bytes()))
+        )
     if "/profiles/task/" in profile.resolve().as_posix():
         document_digest = semantic_task_fingerprint(text).sha256
     else:

@@ -75,7 +75,7 @@ mapped, and the coordinator returns `PASS` for the current fingerprint.
 
 A failed review is not a reason to “continue carefully.” Update the task
 contract or evidence, produce a new fingerprint, and rerun only after a real
-change. Re-running an unchanged failed fingerprint is forbidden.
+change. Re-running an unchanged failed fingerprint is forbidden. Before each architecture launch, run `scripts/check_architecture_admission.py` (clean/candidate baseline, unchanged-FAIL ban, material attempt cap). After accepted changes, use `scripts/compute_invalidation.py` for the targeted dependent-gate rerun set; unknown classes fail closed.
 
 ### G1 — RED, runtime, and parity
 
@@ -391,7 +391,7 @@ all `AGENTS.md` files. A protected write requires both a narrowly scoped
 The bound task or primary plan stores:
 
 - `## ACDD inputs` — typed paths;
-- `## ACDD gate evidence` — bounded `basis`, `command`, `review`, `handoff`, or
+- `## ACDD gate evidence` — bounded `basis`, `command`, `proof-bundle`, `review`, `handoff`, or
   `rationale` evidence;
 - an ordered receipt table;
 - explicit blockers.

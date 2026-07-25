@@ -20,7 +20,7 @@ in core profiles or contracts.
     independent closure review, current receipts, empty blockers.
 - Never execute implementation before G0 passes for the current semantic
   fingerprint.
-- Never rerun an unchanged architecture `FAIL`. Change the bound contract or
+- Never rerun an unchanged architecture `FAIL`. Run `scripts/check_architecture_admission.py` before each launch. Change the bound contract or
   evidence, recompute the fingerprint, and launch a fresh verification.
 - Never manufacture, infer, or backfill a passing receipt. Unavailable evidence
   is `blocked`.

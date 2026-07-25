@@ -7,13 +7,37 @@ blockingStatus: blocked
 fingerprintPattern: '^sha256:[0-9a-f]{64}$'
 recordedAtPattern: '^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$'
 invalidationInputs: [source, test, configuration, generated, dependency, environment, accepted-review-findings]
+# Successor edges guide targeted re-runs after a gate becomes stale. Fingerprints
+# remain authoritative; unknown/unscoped input classes fail closed.
+successorInvalidation:
+  matrix/v1: [architecture/v1, red/v1, runtime/v1, parity/v1, security/v1, release/v1, review/v1, handoff/v1]
+  architecture/v1: [red/v1, runtime/v1, parity/v1, security/v1, release/v1, review/v1, handoff/v1]
+  red/v1: [runtime/v1, parity/v1, security/v1, release/v1, review/v1, handoff/v1]
+  runtime/v1: [parity/v1, security/v1, release/v1, review/v1, handoff/v1]
+  parity/v1: [release/v1, review/v1, handoff/v1]
+  security/v1: [release/v1, review/v1, handoff/v1]
+  release/v1: [review/v1, handoff/v1]
+  review/v1: [handoff/v1]
+  handoff/v1: []
 gatePolicies:
   matrix/v1: {evidenceMode: basis, invalidationInputs: [dependency, environment, accepted-review-findings]}
   architecture/v1: {evidenceMode: basis, invalidationInputs: [dependency, environment, accepted-review-findings]}
-  red/v1: {evidenceMode: snapshot, invalidationInputs: [source, test, configuration, dependency]}
-  runtime/v1: {evidenceMode: live, invalidationInputs: [source, test, configuration, generated, dependency, environment, accepted-review-findings]}
-  parity/v1: {evidenceMode: live, invalidationInputs: [source, test, configuration, generated, dependency, environment, accepted-review-findings]}
-  security/v1: {evidenceMode: live, invalidationInputs: [source, test, configuration, generated, dependency, environment, accepted-review-findings]}
+  red/v1:
+    evidenceMode: snapshot
+    invalidationInputs: [source, test, configuration, dependency]
+    invalidationClasses: [red, runtime, core, api, test]
+  runtime/v1:
+    evidenceMode: live
+    invalidationInputs: [source, test, configuration, generated, dependency, environment, accepted-review-findings]
+    invalidationClasses: [runtime, core, api, backend, test]
+  parity/v1:
+    evidenceMode: live
+    invalidationInputs: [source, test, configuration, generated, dependency, environment, accepted-review-findings]
+    invalidationClasses: [parity, backend]
+  security/v1:
+    evidenceMode: live
+    invalidationInputs: [source, test, configuration, generated, dependency, environment, accepted-review-findings]
+    invalidationClasses: [security, auth, payload, egress]
   release/v1: {evidenceMode: live, invalidationInputs: [source, test, configuration, generated, dependency, environment, accepted-review-findings]}
   review/v1: {evidenceMode: live, invalidationInputs: [source, test, configuration, generated, dependency, environment, accepted-review-findings]}
   handoff/v1: {evidenceMode: live, invalidationInputs: [source, test, configuration, generated, dependency, environment, accepted-review-findings]}

@@ -6,8 +6,8 @@ bound task Markdown.
 1. Declare typed workspace-relative paths under `## ACDD inputs` with
    `apiVersion: acdd/inputs/v1`.
 2. Record each evidence object under `## ACDD gate evidence` with
-   `apiVersion: acdd/gate-evidence/v1` and one of `basis`, `command`, `review`,
-   `handoff`, or `rationale`.
+   `apiVersion: acdd/gate-evidence/v1` and one of `basis`, `command`,
+   `proof-bundle`, `review`, `handoff`, or `rationale`.
 3. Reference one evidence object from a nonpending receipt as `evidence=<id>`.
 4. Use the gate fingerprint returned by strict validation; do not persist an
    input manifest, spec, component document, or transcript.
@@ -18,6 +18,27 @@ redacted output, result, and current fingerprint. A RED command records its
 proof-definition fingerprint. When no Git revision is available, it also locks
 only the declared source/test/configuration/dependency files used by that proof
 as `{path, sha256}`.
+
+A `proof-bundle` may satisfy multiple live receipts (`runtime/v1`, `parity/v1`,
+`security/v1`, `release/v1`) when:
+
+- `claims` lists every covered gate and includes the anchor `gate` field
+- every claimed gate shares identical `invalidationInputs`
+- each receipt row references the same `evidence=<id>` and current fingerprint
+- `commands[]` carries the same fields as command evidence (redacted output)
+
+Ordinary `command` evidence still cannot satisfy more than one receipt.
+
+Gate policies may declare `invalidationClasses`. A tagged input contributes to
+that gate only when classes intersect; an untagged input or unknown class is
+fail-closed and contributes to every gate selected by its input type. The
+`successorInvalidation` graph then expands directly impacted gates to their
+ordered downstream dependents. Use `scripts/compute_invalidation.py` to preview
+the targeted rerun set; fingerprints remain the final authority.
+
+Prefer `scripts/record_proof.py` to compute the fingerprint, run or capture the
+command, redact secrets, and write the evidence plus receipt rows. Single
+`--claim` emits `kind: command`; multiple claims emit `kind: proof-bundle`.
 
 Review evidence records the adapter, independent session UUID, author session
 UUID, reviewer, terminal verdict, authority sources, production paths,

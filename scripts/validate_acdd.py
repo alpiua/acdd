@@ -13,6 +13,7 @@ from pathlib import Path, PurePosixPath
 import yaml
 
 from acdd_document import DocumentError, GatePolicy, validate_document
+from invalidation import InvalidationError, validate_graph
 from architecture_verification import (
     ArchitectureVerificationError,
     load_yaml as load_architecture_verification_yaml,
@@ -423,7 +424,7 @@ def load_core(profile_path: Path = DEFAULT_PROFILE) -> CoreContract:
     for gate_id in gate_ids:
         policy = gate_policies[gate_id]
         required_policy_fields = {"evidenceMode", "invalidationInputs"}
-        allowed_policy_fields = required_policy_fields
+        allowed_policy_fields = required_policy_fields | {"invalidationClasses"}
         if not isinstance(policy, dict) or not required_policy_fields <= set(policy) or set(policy) - allowed_policy_fields:
             raise ContractError(f"receipt {gate_id}.gatePolicy has invalid fields")
         mode = policy.get("evidenceMode")
@@ -435,11 +436,29 @@ def load_core(profile_path: Path = DEFAULT_PROFILE) -> CoreContract:
         policy_inputs = set(_string_list(policy.get("invalidationInputs"), f"receipt {gate_id}.invalidationInputs"))
         if not policy_inputs or not policy_inputs <= expected_invalidations:
             raise ContractError(f"receipt {gate_id}.invalidationInputs must be a non-empty canonical subset")
-        if mode == "live" and policy_inputs != expected_invalidations:
-            raise ContractError(f"receipt {gate_id}.live invalidationInputs must include every canonical input")
+        # Live gates may use a canonical subset. Unknown/unscoped paths still fail
+        # closed inside fingerprint class filtering.
+        if "invalidationClasses" in policy:
+            classes = _string_list(
+                policy.get("invalidationClasses"),
+                f"receipt {gate_id}.invalidationClasses",
+            )
+            for class_name in classes:
+                if not re.fullmatch(r"[a-z][a-z0-9-]*", class_name):
+                    raise ContractError(
+                        f"receipt {gate_id}.invalidationClasses: invalid {class_name!r}"
+                    )
     terminal = receipt.get("terminalStatuses")
     if not isinstance(terminal, dict) or set(terminal) != set(gate_ids):
         raise ContractError("receipt terminalStatuses must contain exactly the profile gates")
+    successor_graph = receipt.get("successorInvalidation")
+    if successor_graph is not None:
+        if not isinstance(successor_graph, dict):
+            raise ContractError("receipt successorInvalidation must be a mapping")
+        try:
+            validate_graph(successor_graph, tuple(gate_ids))
+        except InvalidationError as exc:
+            raise ContractError(str(exc)) from exc
     for gate_id in gate_ids:
         statuses = _string_list(terminal[gate_id], f"receipt {gate_id}.terminalStatuses")
         if api_version == "acdd/task/v1":
@@ -827,6 +846,12 @@ def _gate_policies(core: CoreContract) -> tuple[GatePolicy, ...]:
         raw_policy = raw_policies.get(gate)
         if not isinstance(raw_policy, dict):
             raise ContractError(f"receipt {gate}: missing gate policy")
+        classes_raw = raw_policy.get("invalidationClasses")
+        invalidation_classes = None
+        if classes_raw is not None:
+            invalidation_classes = frozenset(
+                _string_list(classes_raw, f"receipt {gate}.invalidationClasses")
+            )
         policies.append(
             GatePolicy(
                 gate=gate,
@@ -839,6 +864,7 @@ def _gate_policies(core: CoreContract) -> tuple[GatePolicy, ...]:
                         f"receipt {gate}.invalidationInputs",
                     )
                 ),
+                invalidation_classes=invalidation_classes,
             )
         )
     return tuple(policies)

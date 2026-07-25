@@ -17,6 +17,10 @@ from acdd_fingerprint import (
     semantic_task_fingerprint,
     yaml_documents,
 )
+from architecture_governor import (
+    ArchitectureGovernorError,
+    validate_architecture_admission,
+)
 from architecture_verification import (
     ArchitectureVerificationError,
     validate_result as validate_architecture_verification_result,
@@ -41,6 +45,7 @@ class GatePolicy:
     gate: str
     terminal_statuses: frozenset[str]
     invalidation_inputs: frozenset[str]
+    invalidation_classes: frozenset[str] | None = None
 
 
 @dataclass(frozen=True)
@@ -243,6 +248,10 @@ def parse_evidence(
             common | {"rationale", "authorization"},
             frozenset(),
         ),
+        "proof-bundle": (
+            common | {"claims", "commands"},
+            frozenset({"artifacts"}),
+        ),
     }
     for index, raw in enumerate(documents):
         item = _mapping(raw, f"ACDD gate evidence[{index}]")
@@ -392,6 +401,87 @@ def parse_evidence(
                 f"evidence {evidence_id}.blockers",
                 allow_empty=True,
             )
+        elif kind == "proof-bundle":
+            claims = _string_list(
+                item.get("claims"), f"evidence {evidence_id}.claims"
+            )
+            if gate not in claims:
+                raise DocumentError(
+                    f"evidence {evidence_id}: gate must be one of claims"
+                )
+            commands = item.get("commands")
+            if not isinstance(commands, list) or not commands:
+                raise DocumentError(
+                    f"evidence {evidence_id}.commands: expected a non-empty list"
+                )
+            for cmd_index, raw_command in enumerate(commands):
+                command = _mapping(
+                    raw_command, f"evidence {evidence_id}.commands[{cmd_index}]"
+                )
+                _require_keys(
+                    command,
+                    required=frozenset(
+                        {
+                            "exactCommand",
+                            "recordedAt",
+                            "exitCode",
+                            "output",
+                            "redacted",
+                            "result",
+                        }
+                    ),
+                    optional=frozenset(),
+                    label=f"evidence {evidence_id}.commands[{cmd_index}]",
+                )
+                _string(
+                    command.get("exactCommand"),
+                    f"evidence {evidence_id}.commands[{cmd_index}].exactCommand",
+                )
+                _timestamp(
+                    command.get("recordedAt"),
+                    f"evidence {evidence_id}.commands[{cmd_index}].recordedAt",
+                )
+                if not isinstance(command.get("exitCode"), int):
+                    raise DocumentError(
+                        f"evidence {evidence_id}.commands[{cmd_index}].exitCode: "
+                        "expected integer"
+                    )
+                output = command.get("output")
+                if not isinstance(output, str):
+                    raise DocumentError(
+                        f"evidence {evidence_id}.commands[{cmd_index}].output: "
+                        "expected string"
+                    )
+                if len(output.encode("utf-8")) > MAX_OUTPUT_BYTES:
+                    raise DocumentError(
+                        f"evidence {evidence_id}.commands[{cmd_index}].output "
+                        f"exceeds {MAX_OUTPUT_BYTES} bytes"
+                    )
+                if SECRET_RE.search(output):
+                    raise DocumentError(
+                        f"evidence {evidence_id}.commands[{cmd_index}].output "
+                        "contains an unredacted secret"
+                    )
+                _bool(
+                    command.get("redacted"),
+                    f"evidence {evidence_id}.commands[{cmd_index}].redacted",
+                )
+                _string(
+                    command.get("result"),
+                    f"evidence {evidence_id}.commands[{cmd_index}].result",
+                )
+            if "artifacts" in item:
+                artifacts = item.get("artifacts")
+                if not isinstance(artifacts, list):
+                    raise DocumentError(
+                        f"evidence {evidence_id}.artifacts: expected a list"
+                    )
+                for art_index, raw_artifact in enumerate(artifacts):
+                    if not isinstance(raw_artifact, str) or not raw_artifact.strip():
+                        raise DocumentError(
+                            f"evidence {evidence_id}.artifacts[{art_index}]: "
+                            "expected non-empty string"
+                        )
         else:
             _string(item.get("rationale"), f"evidence {evidence_id}.rationale")
             _string(item.get("authorization"), f"evidence {evidence_id}.authorization")
@@ -680,14 +770,6 @@ def validate_document(
             raise DocumentError(
                 f"receipt {policy.gate}: invalid status {receipt.status!r}"
             )
-        current = fingerprint_inputs(
-            document=document,
-            profile=profile,
-            receipt_contract=receipt_contract,
-            adapters=adapters,
-            workspace_root=workspace_root,
-            include_types=policy.invalidation_inputs,
-        ).sha256
         if receipt.status == "pending":
             if any(
                 value is not None
@@ -716,14 +798,63 @@ def validate_document(
                 f"receipt {policy.gate}: missing evidence {receipt.evidence_id!r}"
             )
         if receipt.evidence_id in seen_evidence:
-            raise DocumentError(
-                f"evidence {receipt.evidence_id!r} cannot satisfy multiple receipts"
-            )
-        seen_evidence.add(receipt.evidence_id)
-        if gate_evidence.gate != policy.gate:
+            if gate_evidence.kind != "proof-bundle":
+                raise DocumentError(
+                    f"evidence {receipt.evidence_id!r} cannot satisfy multiple receipts"
+                )
+        else:
+            seen_evidence.add(receipt.evidence_id)
+        if gate_evidence.kind == "proof-bundle":
+            claims = gate_evidence.data.get("claims")
+            if not isinstance(claims, list) or policy.gate not in claims:
+                raise DocumentError(
+                    f"evidence {gate_evidence.id}: claims do not cover receipt {policy.gate}"
+                )
+            unknown_claims = [claim for claim in claims if claim not in policy_map]
+            if unknown_claims:
+                raise DocumentError(
+                    f"evidence {gate_evidence.id}: unknown claim gates {unknown_claims}"
+                )
+            if len(claims) != len(set(claims)):
+                raise DocumentError(
+                    f"evidence {gate_evidence.id}: claims must be unique"
+                )
+        elif gate_evidence.gate != policy.gate:
             raise DocumentError(
                 f"evidence {gate_evidence.id}: gate does not match receipt"
             )
+        current_inputs = policy.invalidation_inputs
+        current_classes = policy.invalidation_classes
+        if gate_evidence.kind == "proof-bundle":
+            claims = gate_evidence.data.get("claims")
+            if not isinstance(claims, list):
+                raise DocumentError(
+                    f"evidence {gate_evidence.id}: claims must be a list"
+                )
+            current_inputs = frozenset(
+                input_type
+                for claim in claims
+                for input_type in policy_map[claim].invalidation_inputs
+            )
+            class_sets = [
+                policy_map[claim].invalidation_classes
+                for claim in claims
+                if policy_map[claim].invalidation_classes is not None
+            ]
+            current_classes = (
+                frozenset().union(*(classes or frozenset() for classes in class_sets))
+                if class_sets
+                else None
+            )
+        current = fingerprint_inputs(
+            document=document,
+            profile=profile,
+            receipt_contract=receipt_contract,
+            adapters=adapters,
+            workspace_root=workspace_root,
+            include_types=current_inputs,
+            include_classes=current_classes,
+        ).sha256
         if (
             gate_evidence.input_fingerprint != receipt.input_fingerprint
             or receipt.input_fingerprint != current
@@ -740,6 +871,10 @@ def validate_document(
             "matrix/v1": frozenset({"basis"}),
             "architecture/v1": frozenset({"review"}),
             "red/v1": frozenset({"command", "rationale"}),
+            "runtime/v1": frozenset({"command", "proof-bundle"}),
+            "parity/v1": frozenset({"command", "proof-bundle"}),
+            "security/v1": frozenset({"command", "proof-bundle"}),
+            "release/v1": frozenset({"command", "proof-bundle"}),
             "review/v1": frozenset({"review"}),
             "handoff/v1": frozenset({"handoff"}),
             "intent/v1": frozenset({"basis"}),
@@ -852,6 +987,16 @@ def validate_document(
                     )
                 except ArchitectureVerificationError as exc:
                     raise DocumentError(str(exc)) from exc
+                try:
+                    validate_architecture_admission(
+                        text=text,
+                        workspace_root=workspace_root,
+                        architecture_fingerprint=gate_evidence.input_fingerprint,
+                    )
+                except ArchitectureGovernorError as exc:
+                    raise DocumentError(
+                        f"architecture/v1 admission failed: {exc}"
+                    ) from exc
         if receipt.status == "blocked" or receipt.status not in policy.terminal_statuses:
             terminal_seen = False
     if semantic is not None and semantic_record is not None:

@@ -2,6 +2,50 @@
 
 Load only for `architecture/v1`.
 
+## G0 admission governor
+
+Before launching architecture verification, and before an `architecture/v1`
+PASS receipt is accepted, admission must hold:
+
+1. **Baseline:** every dirty Git path that is a declared implementation input
+   (`source` / `test` / `configuration` / `generated`) is either clean, or listed
+   in `## ACDD architecture admission` `candidateSet` with a current sha256 lock.
+   Unrelated dirty paths outside those inputs are ignored. Candidate bytes are
+   pre-existing candidate-only surfaces — never verified implementation admission.
+2. **Unchanged FAIL ban:** do not relaunch when the last architecture attempt is
+   `FAIL` and the fingerprint is unchanged (`cannot rerun an unchanged FAIL
+   fingerprint`).
+3. **Material attempt cap:** default `maxMaterialAttempts: 3` distinct FAIL
+   fingerprints. Further new fingerprints are blocked; record `blocked` and stop
+   thrash instead of infinite coordinator relaunch.
+
+Check before launch:
+
+```bash
+python3 scripts/check_architecture_admission.py \
+  --document <task.md> \
+  --workspace-root <workspace> \
+  --profile profiles/task/v1.yaml \
+  --receipt-contract contracts/receipt/task/v1.yaml \
+  --adapter task=<task-adapter.yaml> \
+  --adapter implementation=<implementation-adapter.yaml>
+```
+
+Optional admission section:
+
+```yaml
+apiVersion: acdd/architecture-admission/v1
+kind: architecture-admission
+maxMaterialAttempts: 3
+candidateSet:
+  - path: path/to/candidate.py
+    sha256: sha256:...
+attempts:
+  - inputFingerprint: sha256:...
+    verdict: FAIL
+    recordedAt: "2026-07-24T12:00:00Z"
+```
+
 An architecture receipt may pass only when every partition reviews the complete owning repository, not only the diff or named files, and the proposed slice identifies:
 
 1. the canonical owner and desired end state;
