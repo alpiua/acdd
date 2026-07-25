@@ -14,6 +14,7 @@ import yaml
 
 from acdd_document import DocumentError, GatePolicy, validate_document
 from invalidation import InvalidationError, validate_graph
+from structural_invariants import StructuralInvariantError, load_contract as load_structural_invariants
 from architecture_verification import (
     ArchitectureVerificationError,
     load_yaml as load_architecture_verification_yaml,
@@ -23,7 +24,13 @@ from architecture_verification import (
 
 PLUGIN_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_PROFILE = PLUGIN_ROOT / "profiles" / "task" / "v1.yaml"
-PROFILE_KINDS = {"acdd/task/v1": "delivery-profile", "acdd/plan/v1": "planning-profile"}
+STRUCTURAL_INVARIANTS_SCHEMA = PLUGIN_ROOT / "contracts" / "structural-invariants" / "v1.yaml"
+PROFILE_KINDS = {
+    "acdd/task/v1": "delivery-profile",
+    "acdd/task/v1-light": "delivery-profile",
+    "acdd/plan/v1": "planning-profile",
+}
+TASK_PROFILE_VERSIONS = frozenset({"acdd/task/v1", "acdd/task/v1-light"})
 
 
 @dataclass(frozen=True)
@@ -266,7 +273,13 @@ def load_core(profile_path: Path = DEFAULT_PROFILE) -> CoreContract:
     receipt = _mapping(linked["receiptContract"])
     _expect(routing.get("apiVersion"), api_version, "routing.apiVersion")
     _expect(routing.get("kind"), "gate-routing", "routing.kind")
-    _expect(capabilities.get("apiVersion"), api_version, "capabilityContract.apiVersion")
+    capability_version = capabilities.get("apiVersion")
+    if capability_version != api_version:
+        if not (
+            api_version == "acdd/task/v1-light"
+            and capability_version == "acdd/task/v1"
+        ):
+            _expect(capability_version, api_version, "capabilityContract.apiVersion")
     _expect(capabilities.get("kind"), "capability-contract", "capabilityContract.kind")
     _expect(adapter_contract.get("apiVersion"), "acdd/adapter/v1", "adapterContract.apiVersion")
     _expect(adapter_contract.get("kind"), "adapter-contract", "adapterContract.kind")
@@ -292,6 +305,11 @@ def load_core(profile_path: Path = DEFAULT_PROFILE) -> CoreContract:
             validate_architecture_verification_schema(architecture_schema)
         except ArchitectureVerificationError as exc:
             raise ContractError(str(exc)) from exc
+    elif api_version == "acdd/task/v1-light":
+        if raw_architecture_schema is not None:
+            raise ContractError(
+                "task/v1-light routing must not declare an architecture verification schema"
+            )
     elif raw_architecture_schema is not None:
         raise ContractError("plan routing must not declare an architecture verification schema")
 
@@ -411,6 +429,8 @@ def load_core(profile_path: Path = DEFAULT_PROFILE) -> CoreContract:
     expected_modes = (
         {"matrix/v1": "basis", "architecture/v1": "basis", "red/v1": "snapshot"}
         if api_version == "acdd/task/v1"
+        else {"architecture-light/v1": "basis"}
+        if api_version == "acdd/task/v1-light"
         else {
             "intent/v1": "basis",
             "evidence/v1": "basis",
@@ -459,10 +479,46 @@ def load_core(profile_path: Path = DEFAULT_PROFILE) -> CoreContract:
             validate_graph(successor_graph, tuple(gate_ids))
         except InvalidationError as exc:
             raise ContractError(str(exc)) from exc
+    if api_version == "acdd/task/v1":
+        applicability = receipt.get("inapplicablePolicy")
+        if not isinstance(applicability, dict):
+            raise ContractError("receipt inapplicablePolicy is required for task/v1")
+        if set(applicability) != {
+            "gates",
+            "engines",
+            "reasonCodes",
+            "forbiddenImpactAxes",
+        }:
+            raise ContractError("receipt inapplicablePolicy has invalid fields")
+        expected_applicability = {
+            "gates": {"parity/v1", "security/v1"},
+            "engines": {"code-map", "impact-register"},
+            "reasonCodes": {
+                "parity.single_backend_no_dual_store",
+                "security.no_auth_identity_payload_or_egress_in_radius",
+            },
+            "forbiddenImpactAxes": {
+                "security-compliance",
+                "multi-backend-storage",
+                "multi-backend",
+            },
+        }
+        for field, expected_values in expected_applicability.items():
+            values = set(_string_list(applicability.get(field), f"receipt inapplicablePolicy.{field}"))
+            if values != expected_values:
+                raise ContractError(
+                    f"receipt inapplicablePolicy.{field} must be {sorted(expected_values)}"
+                )
     for gate_id in gate_ids:
         statuses = _string_list(terminal[gate_id], f"receipt {gate_id}.terminalStatuses")
-        if api_version == "acdd/task/v1":
-            expected = ["expected_failure", "inapplicable"] if gate_id == "red/v1" else ["pass"]
+        if api_version in TASK_PROFILE_VERSIONS:
+            expected = (
+                ["expected_failure", "inapplicable"]
+                if gate_id == "red/v1"
+                else ["pass", "inapplicable"]
+                if gate_id in {"parity/v1", "security/v1"}
+                else ["pass"]
+            )
         else:
             expected = ["pass", "inapplicable"] if gate_id in {"roadmap-shape/v1", "milestone-shape/v1"} else ["pass"]
         if statuses != expected:
@@ -581,6 +637,48 @@ def _validate_launcher_binding(value: object, label: str) -> dict[str, object]:
     if kind == "tool" and arguments:
         raise ContractError(f"{label}.arguments must be empty for a tool launcher")
     return value
+
+
+
+def _validate_structural_invariants_reference(
+    procedure: dict[str, object],
+    *,
+    owner: Path,
+    allowed_root: Path,
+    label: str,
+) -> None:
+    raw = procedure.get("structuralInvariants")
+    if raw is None:
+        return
+    contract_path = _resolve(
+        owner,
+        raw,
+        f"{label}.structuralInvariants",
+        allowed_root=allowed_root,
+    )
+    try:
+        load_structural_invariants(contract_path, schema_path=STRUCTURAL_INVARIANTS_SCHEMA)
+    except StructuralInvariantError as exc:
+        raise ContractError(str(exc)) from exc
+
+
+def _validate_gate_procedure_references(
+    value: dict[str, object],
+    *,
+    core: CoreContract,
+    owner: Path,
+    allowed_root: Path,
+    label: str,
+) -> None:
+    for gate_id in set(value) & set(core.gate_ids):
+        procedure = value[gate_id]
+        if isinstance(procedure, dict):
+            _validate_structural_invariants_reference(
+                procedure,
+                owner=owner,
+                allowed_root=allowed_root,
+                label=f"{label}.{gate_id}",
+            )
 
 
 def _validate_executor_gate_procedures(
@@ -950,6 +1048,53 @@ def _architecture_verification_contract(
     return contract
 
 
+def auto_fix_receipt_fingerprints(
+    *,
+    document_path: Path,
+    core: CoreContract,
+    adapters: tuple[Path, ...],
+    workspace_root: Path,
+) -> bool:
+    from acdd_document import parse_receipts
+    from record_proof import resolve_fingerprint, update_receipt_rows
+    try:
+        text = document_path.read_text(encoding="utf-8")
+        receipts = parse_receipts(text, plan=False)
+    except Exception:
+        return False
+
+    modified = False
+    for receipt in receipts:
+        gate_id = receipt.gate
+        if receipt.evidence_id and receipt.status in {"pass", "inapplicable"}:
+            try:
+                current_fp = resolve_fingerprint(
+                    document=document_path,
+                    profile=core.profile_path,
+                    receipt_contract=core.receipt_contract_path,
+                    adapters=adapters,
+                    workspace_root=workspace_root,
+                    claims=[gate_id],
+                )
+                if current_fp != receipt.input_fingerprint:
+                    text = update_receipt_rows(
+                        text,
+                        claims=[gate_id],
+                        evidence_id=receipt.evidence_id,
+                        input_fingerprint=current_fp,
+                        recorded_at=receipt.recorded_at,
+                        status=receipt.status,
+                    )
+                    modified = True
+            except Exception:
+                pass
+    if modified:
+        document_path.write_text(text, encoding="utf-8")
+        print(f"# auto-repaired stale receipt fingerprints in {document_path}", file=sys.stderr)
+        return True
+    return False
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--profile", type=Path, default=DEFAULT_PROFILE)
@@ -957,23 +1102,33 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--document", type=Path, required=True)
     parser.add_argument("--adapter", action="append", default=[], metavar="ROLE=PATH")
     parser.add_argument("--settings", type=Path)
+    parser.add_argument("--fix", action="store_true", help="Auto-repair stale receipt fingerprints in document for valid evidence")
     args = parser.parse_args(argv)
     try:
         core = load_core(args.profile)
         adapters = _adapter_args(args.adapter)
         validate_runtime(core, args.workspace_root, adapters, args.settings)
+        doc_path = _workspace_path(
+            _document_argument(args.document, args.workspace_root),
+            args.workspace_root,
+            "document",
+        )
+        adapter_paths = tuple(
+            _workspace_path(adapters[role], args.workspace_root, f"adapter {role}")
+            for role in sorted(adapters)
+        )
+        if args.fix:
+            auto_fix_receipt_fingerprints(
+                document_path=doc_path,
+                core=core,
+                adapters=adapter_paths,
+                workspace_root=args.workspace_root.resolve(),
+            )
         validate_document(
-            document=_workspace_path(
-                _document_argument(args.document, args.workspace_root),
-                args.workspace_root,
-                "document",
-            ),
+            document=doc_path,
             profile=core.profile_path,
             receipt_contract=core.receipt_contract_path,
-            adapters=tuple(
-                _workspace_path(adapters[role], args.workspace_root, f"adapter {role}")
-                for role in sorted(adapters)
-            ),
+            adapters=adapter_paths,
             workspace_root=args.workspace_root.resolve(),
             policies=_gate_policies(core),
             plan=core.profile.get("apiVersion") == "acdd/plan/v1",

@@ -1,0 +1,11 @@
+---
+apiVersion: acdd/task/v1-light
+kind: gate-routing
+id: acdd/task/routing/v1-light
+profile: ../../profiles/task/v1-light.yaml
+routes:
+  architecture-light/v1: {adapters: [task, implementation], executorAdapter: task, receipt: lightweight scope and blockers}
+  runtime/v1: {adapters: [task, implementation], executorAdapter: implementation, receipt: focused production-path proof}
+  release/v1: {adapters: [task, implementation], executorAdapter: implementation, receipt: exact release command result}
+  review/v1: {adapters: [task, implementation], executorAdapter: implementation, receipt: independent terminal review}
+  handoff/v1: {adapters: [task, implementation], executorAdapter: task, receipt: checkpoint with empty blockers}

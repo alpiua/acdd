@@ -249,7 +249,8 @@ recordedAt: "2026-07-23T00:00:00Z"
 exitCode: 1
 output: "password=visible"
 redacted: false
-result: expected failure
+result: expected_failure
+expectedException: AssertionError
 proofDefinitionFingerprint: {semantic.red_proof_sha256}
 componentLocks:
   - path: test.py
@@ -258,7 +259,7 @@ componentLocks:
     text = document.read_text(encoding="utf-8").replace("```yaml\n[]\n```", evidence)
     with pytest.raises(DOC.DocumentError, match="unredacted secret"):
         DOC.parse_evidence(text, workspace_root=tmp_path, semantic=semantic)
-    text = text.replace('output: "password=visible"', 'output: "<redacted>"').replace(
+    text = text.replace('output: "password=visible"', 'output: "AssertionError: missing behavior"').replace(
         "redacted: false", "redacted: true"
     )
     parsed = DOC.parse_evidence(text, workspace_root=tmp_path, semantic=semantic)

@@ -1,6 +1,6 @@
 apiVersion: acdd/adapter/v1
 kind: adapter
-id: example-codebase-implementation/v1
+id: example-codebase-implementation-light/v1
 role: implementation
 provides: [source_map, docs_search, structural_search, run_gate, independent_review, review_execution]
 procedure:
@@ -24,11 +24,10 @@ inputAuthorities:
   environment: ["**"]
   accepted-review-findings: ["**"]
 gateProcedures:
-  architecture/v1:
-    reference: repository architecture procedure
-    sourceMap: [src/**, tests/**, config/**]
-    callerPaths: [src/**]
-    backendPaths: [src/**]
+  runtime/v1:
+    reference: repository runtime procedure
+  release/v1:
+    structuralInvariants: invariants/release.yaml
   review/v1:
     operation: closure-code-review
     runtime: pi-review-agents
@@ -42,8 +41,6 @@ gateProcedures:
     toolEnvelope:
       admit: [pi_review_agents, ctx_search, ast_grep_search, code_map_query]
       deny: [write, edit]
-  release/v1:
-    structuralInvariants: invariants/release.yaml
 constraints:
   - Replace example paths and commands with canonical codebase owners.
   - Preserve unrelated worktree changes.

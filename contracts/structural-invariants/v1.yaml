@@ -1,0 +1,8 @@
+---
+apiVersion: acdd/structural-invariants/v1
+kind: structural-invariants-schema
+id: acdd/structural-invariants-schema/v1
+requiredRuleFields: [id, rule, pattern, paths]
+allowedRules: [forbidden, required]
+patternMaxLength: 512
+maxRules: 64

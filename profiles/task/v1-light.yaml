@@ -1,0 +1,18 @@
+---
+apiVersion: acdd/task/v1-light
+kind: delivery-profile
+id: acdd/task/v1-light
+title: Lightweight chore and documentation delivery
+capabilityContract: ../../contracts/task/v1.yaml
+adapterContract: ../../contracts/adapter/v1.yaml
+receiptContract: ../../contracts/receipt/task/v1-light.yaml
+routing: ../../routing/task/v1-light.yaml
+gates:
+  - {id: architecture-light/v1, queue: 20, name: Lightweight architecture scope, purpose: Bind limited-radius owners, impact, and optional structural invariants before implementation., capabilities: [task_read, impact, source_map, docs_search, task_write], guidance: {skill: acdd-task, prompt: Record affected domains, owners, propagation, authorization, proof IDs, and blockers for a limited-radius change.}}
+  - {id: runtime/v1, queue: 40, name: Focused runtime proof, purpose: Prove the production path after implementation., capabilities: [run_gate, task_write], guidance: {skill: acdd-task, prompt: Prove the real caller path and relevant failure path.}}
+  - {id: release/v1, queue: 70, name: Release gate, purpose: Run the exact bounded repository gate., capabilities: [run_gate, task_write], guidance: {skill: acdd-task, prompt: Run and record the task-appropriate release command.}}
+  - {id: review/v1, queue: 80, name: Terminal review, purpose: Classify independent findings against the approved task contract., capabilities: [independent_review, review_execution, task_write], guidance: {skill: acdd-task, prompt: Run the adapter-selected review mode through terminal completion, resolve accepted findings, and record residual risk or blockers.}}
+  - {id: handoff/v1, queue: 90, name: Handoff checkpoint, purpose: Confirm current evidence and honest blockers., capabilities: [task_read, task_write], guidance: {skill: acdd-task, prompt: Record a final checkpoint and close only when blockers are empty.}}
+closure:
+  requiredGates: [architecture-light/v1, runtime/v1, release/v1, review/v1, handoff/v1]
+  generatedRequiredGates: true

@@ -1,0 +1,10 @@
+---
+apiVersion: acdd/structural-invariants/v1
+kind: structural-invariants
+rules:
+  - id: example.no-shell-in-docs
+    rule: forbidden
+    pattern: 'subprocess.run($$$)'
+    paths: [docs/**]
+    language: python
+    message: Documentation tasks must not embed subprocess runners in docs sources

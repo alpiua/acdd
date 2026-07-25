@@ -415,3 +415,147 @@ def test_self_contained_plan_example_validates_without_provenance_files() -> Non
     assert not list(ROOT.rglob("input-set.json"))
     assert not list(ROOT.rglob("input-spec.json"))
     assert not list(ROOT.rglob("components.json"))
+
+
+def test_task_v1_light_profile_loads() -> None:
+    light_profile = ROOT / "profiles" / "task" / "v1-light.yaml"
+    assert light_profile.exists()
+    core = MODULE.load_core(light_profile)
+    assert core.profile["id"] == "acdd/task/v1-light"
+    assert core.gate_ids == (
+        "architecture-light/v1",
+        "runtime/v1",
+        "release/v1",
+        "review/v1",
+        "handoff/v1",
+    )
+    assert "architecture/v1" not in core.gate_ids
+    assert "matrix/v1" not in core.gate_ids
+    assert "red/v1" not in core.gate_ids
+    assert core.architecture_verification_schema is None
+
+
+def test_v1_light_example_validates_with_light_task_adapter() -> None:
+    result = subprocess.run(
+        [
+            sys.executable,
+            str(ROOT / "scripts" / "validate_acdd.py"),
+            "--profile",
+            str(ROOT / "profiles" / "task" / "v1-light.yaml"),
+            "--workspace-root",
+            str(ROOT),
+            "--document",
+            str(ROOT / "examples" / "task-light" / "TASK.md"),
+            "--adapter",
+            f"task={ROOT / 'examples' / 'planner' / '.acdd' / 'task-adapter-light.yaml'}",
+            "--adapter",
+            f"implementation={ROOT / 'examples' / 'codebase' / '.acdd' / 'implementation-adapter-light.yaml'}",
+        ],
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr
+
+
+def test_red_evidence_structural_error_rejected(tmp_path: Path) -> None:
+    from acdd_document import DocumentError, parse_evidence
+
+    inline = _load("test_inline_evidence")
+    document, _ = inline._fixture(tmp_path)
+    semantic = inline.FP.semantic_task_fingerprint(document.read_text(encoding="utf-8"))
+    digest = "sha256:" + "0" * 64
+    lock = "sha256:" + __import__("hashlib").sha256((tmp_path / "test.py").read_bytes()).hexdigest()
+
+    def _red_output(output: str) -> str:
+        evidence = f'''```yaml
+apiVersion: acdd/gate-evidence/v1
+kind: command
+id: red.proof
+gate: red/v1
+inputFingerprint: {digest}
+exactCommand: pytest test.py
+recordedAt: "2026-07-23T00:00:00Z"
+exitCode: 1
+output: "{output}"
+redacted: true
+result: expected_failure
+expectedException: PermissionDeniedError
+proofDefinitionFingerprint: {semantic.red_proof_sha256}
+componentLocks:
+  - path: test.py
+    sha256: {lock}
+```'''
+        return document.read_text(encoding="utf-8").replace("```yaml\n[]\n```", evidence)
+
+    with pytest.raises(DocumentError, match="structural error"):
+        parse_evidence(
+            _red_output("SyntaxError: invalid syntax"),
+            workspace_root=tmp_path,
+            semantic=semantic,
+        )
+    with pytest.raises(DocumentError, match="does not contain expectedException"):
+        parse_evidence(
+            _red_output("AssertionError: behavior gap"),
+            workspace_root=tmp_path,
+            semantic=semantic,
+        )
+    parsed = parse_evidence(
+        _red_output("PermissionDeniedError: missing capability"),
+        workspace_root=tmp_path,
+        semantic=semantic,
+    )
+    assert parsed["red.proof"].data["expectedException"] == "PermissionDeniedError"
+
+
+def _load(name: str) -> object:
+    spec = importlib.util.spec_from_file_location(name, ROOT / "tests" / f"{name}.py")
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+    return module
+
+
+def test_auto_fix_receipt_fingerprints_updates_stale_rows(tmp_path: Path) -> None:
+    inline = _load("test_inline_evidence")
+    document, adapters = inline._fixture(tmp_path)
+    core = MODULE.load_core(ROOT / "profiles" / "task" / "v1.yaml")
+    policies = {policy.gate: policy for policy in MODULE._gate_policies(core)}
+    matrix_fp = inline.FP.fingerprint_inputs(
+        document=document,
+        profile=core.profile_path,
+        receipt_contract=core.receipt_contract_path,
+        adapters=adapters,
+        workspace_root=tmp_path,
+        include_types=policies["matrix/v1"].invalidation_inputs,
+    ).sha256
+    text = document.read_text(encoding="utf-8")
+    text = text.replace(
+        "| `matrix/v1` | `pending` | pending | `pending` | `pending` |",
+        f"| `matrix/v1` | `pass` | evidence=matrix.pass | `sha256:{'1' * 64}` | `2026-07-23T00:00:00Z` |",
+    )
+    evidence = f'''```yaml
+apiVersion: acdd/gate-evidence/v1
+kind: basis
+id: matrix.pass
+gate: matrix/v1
+inputFingerprint: {matrix_fp}
+summary: complete
+authoritySources: [task.md]
+mappings: [contract.proof]
+contradictions: []
+```'''
+    text = text.replace("```yaml\n[]\n```", evidence)
+    document.write_text(text, encoding="utf-8")
+
+    repaired = MODULE.auto_fix_receipt_fingerprints(
+        document_path=document,
+        core=core,
+        adapters=adapters,
+        workspace_root=tmp_path,
+    )
+    assert repaired is True
+    updated = document.read_text(encoding="utf-8")
+    assert matrix_fp in updated
+    assert f"`sha256:{'1' * 64}`" not in updated

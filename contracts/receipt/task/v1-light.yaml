@@ -1,0 +1,30 @@
+---
+apiVersion: acdd/receipt/v1
+kind: receipt-contract
+requiredFields: [gate, status, evidence, inputFingerprint, recordedAt]
+pendingStatus: pending
+blockingStatus: blocked
+fingerprintPattern: '^sha256:[0-9a-f]{64}$'
+recordedAtPattern: '^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$'
+invalidationInputs: [source, test, configuration, generated, dependency, environment, accepted-review-findings]
+successorInvalidation:
+  architecture-light/v1: [runtime/v1, release/v1, review/v1, handoff/v1]
+  runtime/v1: [release/v1, review/v1, handoff/v1]
+  release/v1: [review/v1, handoff/v1]
+  review/v1: [handoff/v1]
+  handoff/v1: []
+gatePolicies:
+  architecture-light/v1: {evidenceMode: basis, invalidationInputs: [dependency, environment, accepted-review-findings]}
+  runtime/v1:
+    evidenceMode: live
+    invalidationInputs: [source, test, configuration, generated, dependency, environment, accepted-review-findings]
+    invalidationClasses: [runtime, core, api, backend, test]
+  release/v1: {evidenceMode: live, invalidationInputs: [source, test, configuration, generated, dependency, environment, accepted-review-findings]}
+  review/v1: {evidenceMode: live, invalidationInputs: [source, test, configuration, generated, dependency, environment, accepted-review-findings]}
+  handoff/v1: {evidenceMode: live, invalidationInputs: [source, test, configuration, generated, dependency, environment, accepted-review-findings]}
+terminalStatuses:
+  architecture-light/v1: [pass]
+  runtime/v1: [pass]
+  release/v1: [pass]
+  review/v1: [pass]
+  handoff/v1: [pass]

@@ -19,15 +19,36 @@ proof-definition fingerprint. When no Git revision is available, it also locks
 only the declared source/test/configuration/dependency files used by that proof
 as `{path, sha256}`.
 
+Component locks and the recomputed input basis are compared against the working
+tree only while the task is in delivery (`status: in_progress|active`). That
+comparison answers "must this gate be rerun before closure", so applying it to a
+terminal receipt would invalidate landed proofs whenever an unrelated task edits a
+shared input. Evidence-to-receipt fingerprint agreement is always enforced.
+
+Evidence is validated against the contract revision it was issued under, declared
+as `contractRevision`. It defaults to the current revision, and a task in delivery
+must use the current revision, so a tightened contract cannot be dodged by
+declaring an older one. A terminal receipt keeps the revision it was verified
+against; back-filling fields a past verifier never emitted would fabricate
+evidence, and only a fresh gate run produces current-revision evidence. Revision 1
+predates `discoveryComplete`, `persistedContractChange`, and
+`persistedContractMappings` on review evidence.
+
 A `proof-bundle` may satisfy multiple live receipts (`runtime/v1`, `parity/v1`,
 `security/v1`, `release/v1`) when:
 
 - `claims` lists every covered gate and includes the anchor `gate` field
-- every claimed gate shares identical `invalidationInputs`
+- the bundle fingerprint is computed over the union of all claimed gate scopes
 - each receipt row references the same `evidence=<id>` and current fingerprint
 - `commands[]` carries the same fields as command evidence (redacted output)
 
 Ordinary `command` evidence still cannot satisfy more than one receipt.
+
+For `parity/v1` and `security/v1`, terminal `inapplicable` requires command
+evidence with `applicability` containing an approved engine, evidence reference,
+all adapter impact axes checked, and a closed reason code. The validator rejects
+inapplicable when impact includes `security-compliance` or multi-backend storage,
+and rejects applicability metadata on a passing receipt.
 
 Gate policies may declare `invalidationClasses`. A tagged input contributes to
 that gate only when classes intersect; an untagged input or unknown class is

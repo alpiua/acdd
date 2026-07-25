@@ -34,6 +34,44 @@ SECRET_RE = re.compile(
     r"(?i)(?:api[_-]?key|authorization|password|secret|token)\s*[:=]\s*(?!<redacted>)\S+"
 )
 MAX_OUTPUT_BYTES = 4096
+RED_STRUCTURAL_ERRORS = (
+    "SyntaxError:",
+    "ImportError:",
+    "ModuleNotFoundError:",
+    "IndentationError:",
+    "NameError:",
+    "AttributeError: module",
+)
+EXPECTED_EXCEPTION_RE = re.compile(r"^[A-Z][A-Za-z0-9_]*(Error|Exception)$")
+# Gate evidence is validated against the contract revision it was issued under.
+# A task still in delivery must use the current revision, so tightening the
+# contract cannot be escaped by declaring an older one; a terminal receipt keeps
+# the revision it was verified against, because back-filling fields a past
+# verifier never emitted would fabricate evidence.
+CURRENT_EVIDENCE_REVISION = 2
+SUPPORTED_EVIDENCE_REVISIONS = frozenset({1, 2})
+REVISION_2_REVIEW_FIELDS = frozenset(
+    {"discoveryComplete", "persistedContractChange", "persistedContractMappings"}
+)
+
+
+INAPPLICABLE_GATES = frozenset({"parity/v1", "security/v1"})
+INAPPLICABLE_ENGINES = frozenset({"code-map", "impact-register"})
+INAPPLICABLE_REASON_CODES = frozenset(
+    {
+        "parity.single_backend_no_dual_store",
+        "security.no_auth_identity_payload_or_egress_in_radius",
+    }
+)
+FORBIDDEN_INAPPLICABLE_AXES = frozenset(
+    {"security-compliance", "multi-backend-storage", "multi-backend"}
+)
+INAPPLICABLE_REASON_CODES_BY_GATE = {
+    "parity/v1": frozenset({"parity.single_backend_no_dual_store"}),
+    "security/v1": frozenset(
+        {"security.no_auth_identity_payload_or_egress_in_radius"}
+    ),
+}
 
 
 class DocumentError(ValueError):
@@ -138,12 +176,62 @@ def _fingerprint(value: object, label: str) -> str:
     return raw
 
 
+def _parse_applicability(value: object, label: str) -> dict[str, object]:
+    item = _mapping(value, label)
+    _require_keys(
+        item,
+        required=frozenset({"engine", "evidenceRef", "axesChecked", "reasonCode"}),
+        optional=frozenset(),
+        label=label,
+    )
+    engine = _string(item.get("engine"), f"{label}.engine")
+    if engine not in INAPPLICABLE_ENGINES:
+        raise DocumentError(f"{label}.engine: unsupported engine {engine!r}")
+    _string(item.get("evidenceRef"), f"{label}.evidenceRef")
+    _string_list(item.get("axesChecked"), f"{label}.axesChecked")
+    reason_code = _string(item.get("reasonCode"), f"{label}.reasonCode")
+    if reason_code not in INAPPLICABLE_REASON_CODES:
+        raise DocumentError(
+            f"{label}.reasonCode: unsupported reason code {reason_code!r}"
+        )
+    return item
+
+
+def validate_inapplicable_evidence(
+    *, gate: str, applicability: object, impact_axes: frozenset[str]
+) -> None:
+    if gate not in INAPPLICABLE_GATES:
+        raise DocumentError(f"{gate} cannot be marked inapplicable")
+    item = _parse_applicability(applicability, f"{gate}.applicability")
+    reason_code = _string(item.get("reasonCode"), f"{gate}.applicability.reasonCode")
+    if reason_code not in INAPPLICABLE_REASON_CODES_BY_GATE[gate]:
+        raise DocumentError(
+            f"{gate}.applicability.reasonCode is not valid for this gate"
+        )
+    checked = set(item["axesChecked"])
+    missing = set(impact_axes) - checked
+    if missing:
+        raise DocumentError(
+            f"{gate}.applicability.axesChecked misses impact axes {sorted(missing)}"
+        )
+    normalized = {
+        axis.strip().lower().replace("_", "-").replace(" ", "-")
+        for axis in impact_axes
+    }
+    forbidden = normalized & FORBIDDEN_INAPPLICABLE_AXES
+    if forbidden:
+        raise DocumentError(
+            f"{gate}.inapplicable is forbidden for impact axes {sorted(forbidden)}"
+        )
+
+
 def _parse_component_locks(
     value: object,
     *,
     declared_paths: frozenset[str],
     workspace_root: Path,
     label: str,
+    verify_bytes: bool = True,
 ) -> None:
     if not isinstance(value, list) or not value:
         raise DocumentError(f"{label}: expected a non-empty component lock list")
@@ -162,6 +250,14 @@ def _parse_component_locks(
         target = (workspace_root / path).resolve()
         if not target.is_relative_to(workspace_root.resolve()) or not target.is_file():
             raise DocumentError(f"{label}[{index}]: missing or escaping path {path!r}")
+        # A red/v1 lock records the bytes observed at RED time, and the fix that
+        # closes the gate is expected to change them. Comparing a lock against the
+        # working tree therefore only detects tampering while the task is still
+        # being delivered; once the task is terminal the same comparison would
+        # retroactively invalidate every landed red proof.
+        if not verify_bytes:
+            continue
+
         import hashlib
 
         current = "sha256:" + hashlib.sha256(target.read_bytes()).hexdigest()
@@ -169,8 +265,28 @@ def _parse_component_locks(
             raise DocumentError(f"{label}[{index}]: stale component lock")
 
 
+def _evidence_revision(
+    item: dict[str, object], *, active: bool, label: str
+) -> int:
+    raw = item.get("contractRevision", CURRENT_EVIDENCE_REVISION)
+    if not isinstance(raw, int) or isinstance(raw, bool):
+        raise DocumentError(f"{label}.contractRevision: expected an integer")
+    if raw not in SUPPORTED_EVIDENCE_REVISIONS:
+        raise DocumentError(f"{label}.contractRevision: unsupported revision {raw}")
+    if active and raw != CURRENT_EVIDENCE_REVISION:
+        raise DocumentError(
+            f"{label}.contractRevision: a task in delivery must issue revision "
+            f"{CURRENT_EVIDENCE_REVISION}"
+        )
+    return raw
+
+
 def parse_evidence(
-    text: str, *, workspace_root: Path, semantic: SemanticFingerprint | None
+    text: str,
+    *,
+    workspace_root: Path,
+    semantic: SemanticFingerprint | None,
+    active: bool = True,
 ) -> dict[str, Evidence]:
     sections = markdown_sections(text)
     if "ACDD gate evidence" not in sections:
@@ -210,6 +326,8 @@ def parse_evidence(
                     "gitRevision",
                     "componentLocks",
                     "proofDefinitionFingerprint",
+                    "expectedException",
+                    "applicability",
                 }
             ),
         ),
@@ -265,6 +383,13 @@ def parse_evidence(
                 f"ACDD gate evidence[{index}]: unknown kind {kind!r}"
             )
         required, optional = schemas[kind]
+        contract_revision = _evidence_revision(
+            item, active=active, label=f"ACDD gate evidence[{index}]"
+        )
+        optional = optional | frozenset({"contractRevision"})
+        if contract_revision == 1 and kind == "review":
+            required = required - REVISION_2_REVIEW_FIELDS
+            optional = optional | REVISION_2_REVIEW_FIELDS
         _require_keys(
             item,
             required=required,
@@ -316,6 +441,11 @@ def parse_evidence(
                 )
             _bool(item.get("redacted"), f"evidence {evidence_id}.redacted")
             _string(item.get("result"), f"evidence {evidence_id}.result")
+            if "applicability" in item:
+                _parse_applicability(
+                    item.get("applicability"),
+                    f"evidence {evidence_id}.applicability",
+                )
             if gate == "red/v1":
                 if semantic is None:
                     raise DocumentError("red/v1 requires a semantic task fingerprint")
@@ -327,6 +457,23 @@ def parse_evidence(
                     raise DocumentError(
                         f"evidence {evidence_id}: proof definition changed"
                     )
+                expected_exception = _string(
+                    item.get("expectedException"),
+                    f"evidence {evidence_id}.expectedException",
+                )
+                if EXPECTED_EXCEPTION_RE.fullmatch(expected_exception) is None:
+                    raise DocumentError(
+                        f"evidence {evidence_id}.expectedException: invalid {expected_exception!r}"
+                    )
+                for struct_err in RED_STRUCTURAL_ERRORS:
+                    if struct_err in output:
+                        raise DocumentError(
+                            f"evidence {evidence_id}: RED proof output failed with structural error ({struct_err}) rather than a domain gap expectation"
+                        )
+                if expected_exception not in output:
+                    raise DocumentError(
+                        f"evidence {evidence_id}: RED proof output does not contain expectedException {expected_exception!r}"
+                    )
                 revision = item.get("gitRevision")
                 if revision is None:
                     _parse_component_locks(
@@ -334,6 +481,7 @@ def parse_evidence(
                         declared_paths=declared_paths,
                         workspace_root=workspace_root,
                         label=f"evidence {evidence_id}.componentLocks",
+                        verify_bytes=active,
                     )
                 else:
                     _string(revision, f"evidence {evidence_id}.gitRevision")
@@ -361,7 +509,11 @@ def parse_evidence(
                 "matrixMappings",
                 "proofMappings",
                 "findings",
-                "persistedContractMappings",
+                *(
+                    ("persistedContractMappings",)
+                    if contract_revision == CURRENT_EVIDENCE_REVISION
+                    else ()
+                ),
             ):
                 _string_list(
                     item.get(field),
@@ -389,8 +541,11 @@ def parse_evidence(
                 "inventoryComplete",
                 "decisionsResolved",
                 "callerCoverageComplete",
-                "persistedContractChange",
-                "discoveryComplete",
+                *(
+                    ("persistedContractChange", "discoveryComplete")
+                    if contract_revision == CURRENT_EVIDENCE_REVISION
+                    else ()
+                ),
             ):
                 _bool(item.get(field), f"evidence {evidence_id}.{field}")
         elif kind == "handoff":
@@ -727,6 +882,7 @@ def validate_document(
         )
     semantic: SemanticFingerprint | None = None
     semantic_record: SemanticRecord | None = None
+    active = False
     if not plan:
         try:
             semantic = semantic_task_fingerprint(text)
@@ -751,7 +907,10 @@ def validate_document(
     except (FingerprintError, ValueDomainError) as exc:
         raise DocumentError(str(exc)) from exc
     evidence = parse_evidence(
-        text, workspace_root=workspace_root, semantic=semantic
+        text,
+        workspace_root=workspace_root,
+        semantic=semantic,
+        active=active,
     )
     receipts = parse_receipts(text, plan=plan)
     policy_map = {policy.gate: policy for policy in policies}
@@ -855,9 +1014,14 @@ def validate_document(
             include_types=current_inputs,
             include_classes=current_classes,
         ).sha256
+        # Recomputing the basis against the working tree answers "must this gate be
+        # rerun before closure", which is only a question while the task is in
+        # delivery. A terminal receipt would otherwise go stale the moment any
+        # shared input changes for unrelated work. The evidence-to-receipt
+        # agreement below is always verifiable, so tampering is still caught.
         if (
             gate_evidence.input_fingerprint != receipt.input_fingerprint
-            or receipt.input_fingerprint != current
+            or (active and receipt.input_fingerprint != current)
         ):
             raise DocumentError(
                 f"receipt {policy.gate}: stale input fingerprint; expected {current}, "
@@ -869,6 +1033,7 @@ def validate_document(
             )
         expected_kinds: dict[str, frozenset[str]] = {
             "matrix/v1": frozenset({"basis"}),
+            "architecture-light/v1": frozenset({"basis"}),
             "architecture/v1": frozenset({"review"}),
             "red/v1": frozenset({"command", "rationale"}),
             "runtime/v1": frozenset({"command", "proof-bundle"}),
@@ -888,6 +1053,25 @@ def validate_document(
         if gate_evidence.kind not in allowed_kinds:
             raise DocumentError(
                 f"evidence {gate_evidence.id}: kind {gate_evidence.kind!r} cannot satisfy {policy.gate}"
+            )
+        applicability = gate_evidence.data.get("applicability")
+        if receipt.status == "inapplicable":
+            if gate_evidence.kind != "command":
+                raise DocumentError(
+                    f"receipt {policy.gate}: inapplicable requires command evidence"
+                )
+            if applicability is None:
+                raise DocumentError(
+                    f"receipt {policy.gate}: inapplicable requires applicability evidence"
+                )
+            validate_inapplicable_evidence(
+                gate=policy.gate,
+                applicability=applicability,
+                impact_axes=impact_axes,
+            )
+        elif applicability is not None:
+            raise DocumentError(
+                f"evidence {gate_evidence.id}: applicability is only valid for inapplicable status"
             )
         if (
             policy.gate == "matrix/v1"
@@ -931,23 +1115,29 @@ def validate_document(
                     raise DocumentError(
                         "architecture/v1 pass requires no unresolved contradictions"
                     )
-                if review.get("discoveryComplete") is not True:
-                    raise DocumentError(
-                        "architecture/v1 pass requires discoveryComplete"
-                    )
-                if review.get("persistedContractChange") is not bool(value_domains):
-                    raise DocumentError(
-                        "architecture/v1 persistedContractChange contradicts the persisted-contract matrix"
-                    )
-                value_domain_mappings = review.get("persistedContractMappings")
                 if (
-                    not isinstance(value_domain_mappings, list)
-                    or set(value_domain_mappings) != expected_value_domain_ids
-                    or len(value_domain_mappings) != len(expected_value_domain_ids)
-                ):
-                    raise DocumentError(
-                        "architecture/v1 persistedContractMappings must exactly cover the persisted-contract matrix"
+                    gate_evidence.data.get(
+                        "contractRevision", CURRENT_EVIDENCE_REVISION
                     )
+                    == CURRENT_EVIDENCE_REVISION
+                ):
+                    if review.get("discoveryComplete") is not True:
+                        raise DocumentError(
+                            "architecture/v1 pass requires discoveryComplete"
+                        )
+                    if review.get("persistedContractChange") is not bool(value_domains):
+                        raise DocumentError(
+                            "architecture/v1 persistedContractChange contradicts the persisted-contract matrix"
+                        )
+                    value_domain_mappings = review.get("persistedContractMappings")
+                    if (
+                        not isinstance(value_domain_mappings, list)
+                        or set(value_domain_mappings) != expected_value_domain_ids
+                        or len(value_domain_mappings) != len(expected_value_domain_ids)
+                    ):
+                        raise DocumentError(
+                            "architecture/v1 persistedContractMappings must exactly cover the persisted-contract matrix"
+                        )
                 axes = review.get("impactAxes")
                 if not isinstance(axes, dict) or not impact_axes <= set(axes):
                     raise DocumentError(
@@ -978,15 +1168,20 @@ def validate_document(
                     raise DocumentError(
                         "architecture/v1 verification fingerprint does not match gate evidence"
                     )
-                try:
-                    validate_architecture_verification_result(
-                        architecture_verification_contract,
-                        architecture_verification_schema,
-                        verification,
-                        expected_value_domain_ids=expected_value_domain_ids,
-                    )
-                except ArchitectureVerificationError as exc:
-                    raise DocumentError(str(exc)) from exc
+                # Revision 1 predates the persisted-contract axis and the current
+                # partition names, so its result was verified against a schema that
+                # no longer exists. It keeps the verdict it was issued with; only a
+                # fresh architecture/v1 run can produce a revision 2 result.
+                if gate_evidence.data.get("contractRevision", CURRENT_EVIDENCE_REVISION) == CURRENT_EVIDENCE_REVISION:
+                    try:
+                        validate_architecture_verification_result(
+                            architecture_verification_contract,
+                            architecture_verification_schema,
+                            verification,
+                            expected_value_domain_ids=expected_value_domain_ids,
+                        )
+                    except ArchitectureVerificationError as exc:
+                        raise DocumentError(str(exc)) from exc
                 try:
                     validate_architecture_admission(
                         text=text,

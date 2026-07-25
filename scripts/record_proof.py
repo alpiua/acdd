@@ -106,9 +106,10 @@ def build_evidence_object(
     redacted: bool,
     result: str,
     artifacts: list[str] | None,
+    expected_exception: str | None = None,
 ) -> dict[str, object]:
     if len(claims) == 1:
-        return {
+        payload: dict[str, object] = {
             "apiVersion": "acdd/gate-evidence/v1",
             "kind": "command",
             "id": evidence_id,
@@ -121,6 +122,9 @@ def build_evidence_object(
             "redacted": redacted,
             "result": result,
         }
+        if expected_exception is not None:
+            payload["expectedException"] = expected_exception
+        return payload
     payload: dict[str, object] = {
         "apiVersion": "acdd/gate-evidence/v1",
         "kind": "proof-bundle",
@@ -306,6 +310,11 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--exit-code", type=int, default=None)
     parser.add_argument("--output-file", type=Path, default=None)
     parser.add_argument("--expected-failure", action="store_true")
+    parser.add_argument(
+        "--expected-exception",
+        default=None,
+        help="Typed exception name required for red/v1 expected-failure proofs",
+    )
     parser.add_argument("--status", default=None)
     parser.add_argument("--artifact", action="append", default=[], dest="artifacts")
     parser.add_argument("--recorded-at", default=None)
@@ -377,6 +386,14 @@ def main(argv: list[str] | None = None) -> int:
             status = "pass" if exit_code == 0 else "fail"
 
         recorded_at = args.recorded_at or _utc_now()
+        expected_exception = args.expected_exception
+        if args.expected_failure and "red/v1" in claims and expected_exception is None:
+            print(
+                "error: red/v1 expected-failure proofs require --expected-exception",
+                file=sys.stderr,
+            )
+            return 2
+
         evidence_object = build_evidence_object(
             evidence_id=args.id,
             claims=claims,
@@ -388,6 +405,7 @@ def main(argv: list[str] | None = None) -> int:
             redacted=redacted_flag,
             result=result,
             artifacts=list(args.artifacts) or None,
+            expected_exception=expected_exception,
         )
 
         yaml_text = yaml.safe_dump(
@@ -416,6 +434,14 @@ def main(argv: list[str] | None = None) -> int:
             )
             document.write_text(text, encoding="utf-8")
             print(f"# wrote evidence={args.id} into {document}", file=sys.stderr)
+            if status == "pass":
+                kg_script = workspace_root / "planner" / ".agents" / "plugins" / "mempalace" / "scripts" / "seed_service_kg.py"
+                if kg_script.exists():
+                    try:
+                        subprocess.run([sys.executable, str(kg_script)], cwd=str(workspace_root / "planner"), timeout=30, capture_output=True, check=False)
+                        print(f"# refreshed MemPalace KG via {kg_script.name}", file=sys.stderr)
+                    except Exception as exc:
+                        print(f"# warning: KG seed refresh failed: {exc}", file=sys.stderr)
 
         if args.expected_failure:
             return 0 if exit_code != 0 else 1

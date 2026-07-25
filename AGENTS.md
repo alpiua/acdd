@@ -17,7 +17,7 @@ Host-neutral Architecture Contract-Driven Development plugin.
 
 - Keep profiles and contracts host-neutral; put repository paths, commands,
   tools, impact axes, and external mappings in owner `.acdd/` adapters.
-- Preserve profile gate order and the supported IDs `acdd/task/v1` and
+- Preserve profile gate order and the supported IDs `acdd/task/v1`, `acdd/task/v1-light`, and
   `acdd/plan/v1` unless explicitly changing contract versions.
 - Complete G0 before implementation; never manufacture receipts or rerun an
   unchanged failed fingerprint.

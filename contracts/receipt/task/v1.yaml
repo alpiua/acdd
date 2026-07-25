@@ -41,13 +41,20 @@ gatePolicies:
   release/v1: {evidenceMode: live, invalidationInputs: [source, test, configuration, generated, dependency, environment, accepted-review-findings]}
   review/v1: {evidenceMode: live, invalidationInputs: [source, test, configuration, generated, dependency, environment, accepted-review-findings]}
   handoff/v1: {evidenceMode: live, invalidationInputs: [source, test, configuration, generated, dependency, environment, accepted-review-findings]}
+inapplicablePolicy:
+  gates: [parity/v1, security/v1]
+  engines: [code-map, impact-register]
+  reasonCodes:
+    - parity.single_backend_no_dual_store
+    - security.no_auth_identity_payload_or_egress_in_radius
+  forbiddenImpactAxes: [security-compliance, multi-backend-storage, multi-backend]
 terminalStatuses:
   matrix/v1: [pass]
   architecture/v1: [pass]
   red/v1: [expected_failure, inapplicable]
   runtime/v1: [pass]
-  parity/v1: [pass]
-  security/v1: [pass]
+  parity/v1: [pass, inapplicable]
+  security/v1: [pass, inapplicable]
   release/v1: [pass]
   review/v1: [pass]
   handoff/v1: [pass]
