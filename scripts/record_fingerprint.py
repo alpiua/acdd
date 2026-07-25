@@ -59,7 +59,6 @@ def _render(text: str, red_evidence_ids: tuple[str, ...]) -> str:
     return (
         "```yaml\n"
         "apiVersion: acdd/semantic-fingerprint/v1\n"
-        "kind: semantic-fingerprint\n"
         f"sha256: {fingerprint.sha256}\n"
         f"ids: [{ids}]\n"
         f"redProofFingerprint: {fingerprint.red_proof_sha256}\n"
