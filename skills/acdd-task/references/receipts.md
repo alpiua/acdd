@@ -68,7 +68,11 @@ command, redact secrets, and write the evidence plus receipt rows. Single
 Review evidence records the adapter, independent session UUID, author session
 UUID, reviewer, terminal verdict, authority sources, production paths,
 direct/alternate callers, contradictions, every adapter impact axis,
-matrix/proof mappings, and bounded findings. Pi transcripts are not copied.
+matrix/proof mappings, and bounded findings. New architecture runner evidence
+also records adapter-normalized per-launch and aggregate usage when emitted by
+the launcher. Usage transport is adapter-specific; Pi `message_end.message.usage`
+is only one supported shape. Full transcripts and temporary partition files are
+not copied.
 
 `architecture/v1: pass` requires complete inventory and decisions, complete
 caller coverage, no unresolved contradiction, all impact axes and matrix/proof

@@ -30,7 +30,7 @@ from pathlib import Path
 import yaml
 
 from acdd_document import MAX_OUTPUT_BYTES, SECRET_RE, DocumentError
-from acdd_fingerprint import FingerprintError, fingerprint_architecture_code_inputs, fingerprint_inputs, markdown_sections
+from acdd_fingerprint import FingerprintError, fingerprint_architecture_candidate, fingerprint_inputs, markdown_sections
 from validate_acdd import ContractError, _adapter_args, _gate_policies, load_core
 
 
@@ -253,7 +253,7 @@ def resolve_fingerprint(
     if unknown:
         raise DocumentError(f"unknown claim gates: {unknown}")
     if claims == ["architecture/v1"]:
-        return fingerprint_architecture_code_inputs(
+        return fingerprint_architecture_candidate(
             document=document,
             adapters=adapters,
             workspace_root=workspace_root,

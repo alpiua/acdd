@@ -763,6 +763,13 @@ def _validate_executor_gate_procedures(
                         positions = [index for index, argument in enumerate(arguments) if argument == flag]
                         if len(positions) != 1 or positions[0] + 1 >= len(arguments) or not arguments[positions[0] + 1].strip():
                             raise ContractError(f"architecture/v1 {name} launcher must bind {flag} exactly once")
+                inspector_arguments = launchers["inspector"]["arguments"]
+                coordinator_arguments = launchers["coordinator"]["arguments"]
+                inspector_tool_flags = [index for index, argument in enumerate(inspector_arguments) if argument == "--tools"]
+                if len(inspector_tool_flags) != 1 or inspector_tool_flags[0] + 1 >= len(inspector_arguments) or inspector_arguments[inspector_tool_flags[0] + 1] != "mcp" or "--no-tools" in inspector_arguments:
+                    raise ContractError("architecture/v1 inspector launcher must enable only mcp tools")
+                if coordinator_arguments.count("--no-tools") != 1 or "--tools" in coordinator_arguments:
+                    raise ContractError("architecture/v1 coordinator launcher must disable all tools")
             else:
                 model = procedure.get("model")
                 model_fields = {"provider", "modelId", "reasoning"}

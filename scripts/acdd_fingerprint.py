@@ -91,6 +91,14 @@ class FingerprintResult:
 
 
 @dataclass(frozen=True)
+class ArchitectureCandidateFingerprint:
+    sha256: str
+    code_sha256: str
+    semantic_sha256: str
+    diagnostics: tuple[Diagnostic, ...]
+
+
+@dataclass(frozen=True)
 class SemanticFingerprint:
     sha256: str
     ids: tuple[str, ...]
@@ -508,4 +516,30 @@ def semantic_task_fingerprint(text: str) -> SemanticFingerprint:
         sha256=_sha256(semantic_text.encode("utf-8")),
         ids=tuple(ids),
         red_proof_sha256=_sha256(red_lines.encode("utf-8")),
+    )
+
+
+def fingerprint_architecture_candidate(
+    *,
+    document: Path,
+    adapters: tuple[Path, ...],
+    workspace_root: Path,
+) -> ArchitectureCandidateFingerprint:
+    """Bind the semantic design candidate to one allowed-root code snapshot."""
+    semantic = semantic_task_fingerprint(document.read_text(encoding="utf-8"))
+    code = fingerprint_architecture_code_inputs(
+        document=document,
+        adapters=adapters,
+        workspace_root=workspace_root,
+    )
+    payload = {
+        "apiVersion": "acdd/architecture-candidate/v1",
+        "codeFingerprint": code.sha256,
+        "semanticTaskFingerprint": semantic.sha256,
+    }
+    return ArchitectureCandidateFingerprint(
+        sha256=_sha256(_canonical(payload)),
+        code_sha256=code.sha256,
+        semantic_sha256=semantic.sha256,
+        diagnostics=code.diagnostics,
     )

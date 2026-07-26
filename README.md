@@ -8,6 +8,8 @@ adapters, validators, skills, and runnable examples.
 
 New to ACDD? Start with the [human walkthrough](docs/getting-started.md).
 Contract authors should also read the [versioning policy](docs/versioning.md).
+For the current runner optimization backlog, see
+[`docs/optimization.md`](docs/optimization.md).
 
 ACDD is designed for work where “the tests pass” is not enough. A change must
 also have a known owner, production caller, authority boundary, failure
@@ -72,9 +74,19 @@ changes. It records:
 - explicit out-of-scope boundaries and blockers.
 
 An independent architecture verification then checks the contract against live
-source and dependencies. G0 passes only when all required read-only inspection
-partitions are complete, contradictions are resolved, every impact axis is
-mapped, and the coordinator returns `PASS` for the current fingerprint.
+source and dependencies. The runner binds one candidate from the semantic task
+contract plus one snapshot of declared implementation inputs under the allowed
+`services/`, `packages/`, `core/`, and `extensions/` roots. G0 passes only when
+all four read-only partitions terminate and validate, every finding is either
+reconciled into one architectural remediation batch or explicitly resolved by
+the coordinator against the frozen task authority, every impact axis is mapped,
+and the coordinator returns `PASS` for the current fingerprint.
+
+The code is a read-only feasibility and impact baseline during G0; unfinished
+legacy implementation is not itself a failure. A partition `FAIL` must identify
+a typed defect in the task candidate, cite both task and code evidence, and name
+the required task-authority change. Product implementation remains blocked until
+the coordinator produces a terminal `PASS`.
 
 A failed review is not a reason to “continue carefully.” Update the task
 contract or evidence, produce a new fingerprint, and rerun only after a real
@@ -132,13 +144,21 @@ ACDD is fail-closed:
 - unavailable infrastructure is recorded as blocked, never converted to pass;
 - review findings do not authorize scope expansion.
 
-Architecture verification can use up to four parallel **read-only inspectors**.
-Inspectors share one fingerprint, cannot write the task, cannot issue receipts,
-and cannot return the authoritative verdict. They cover the adapter-supplied
-partitions (for example contract, authority, callers, and persistence) using
-exact-text, structural, and dependency-impact discovery. One isolated
-coordinator reconciles all findings and persisted-contract mappings and alone
-returns `PASS` or `FAIL`.
+Architecture/v1 launches exactly four parallel **read-only
+inspectors** through the adapter's inspector launcher. Inspectors share one
+fingerprint, cannot write the task, cannot issue receipts, and cannot return the
+authoritative verdict. The coordinator launcher starts only after all four
+validated outputs exist; it receives no tools and reconciles only the frozen task
+authority, partition outputs, findings, and persisted-contract mappings. The
+coordinator alone returns `PASS` or `FAIL`. A schema or transport failure is
+`BLOCKED`, preserves completed partition outputs and a bounded redacted raw response
+(including plain-text `FAIL` content), and does not consume a material FAIL attempt.
+
+Each launcher may emit structured usage in its own transport shape. The runner
+normalizes supported usage into bounded per-launch and aggregate input, output,
+cache-read, cache-write, total-token, and cost fields. Full transcripts and
+temporary partition files remain runtime data and are never copied into task
+Markdown.
 
 Terminal implementation or plan review is a separate subagent operation chosen
 by the owner adapter. It runs after the relevant evidence stabilizes. The
@@ -353,11 +373,17 @@ gateProcedures:
   architecture/v1:
     operation: architecture-verify
     runtime: pi                    # provenance only
-    launcher:
-      kind: command                # command or tool
-      target: pi                   # actual executable/tool
-      arguments: [--print, "{prompt}"]
-      promptTransport: final-argument
+    launchers:
+      inspector:
+        kind: command
+        target: pi
+        arguments: [--print, "{sessionUuid}"]
+        promptTransport: final-argument
+      coordinator:
+        kind: command
+        target: pi
+        arguments: [--print, "{sessionUuid}", --no-tools]
+        promptTransport: final-argument
     toolEnvelope:
       admit: [read, grep, find]
       deny: [bash, edit, write]
@@ -369,8 +395,14 @@ launcher invokes the exact bound tool. The envelope may list only tools truly
 available inside that launched session.
 
 Task architecture adapters also bind concrete discovery methods for
-`exactText`, `structural`, and `dependency`, plus any concrete verification
-contract, command CWD, model, scope, and session-count restriction.
+`exactText`, `structural`, and `dependency`, plus the verification contract,
+command CWD, model, scope, session-count restriction, and split inspector/
+coordinator launchers. The legacy singular `launcher` remains valid for
+procedures that do not need split orchestration; a procedure must not declare
+both forms. The Planner adapter currently binds these architecture launchers to
+Pi command processes; that is an owner-adapter choice enforced by its validator,
+not a generic ACDD runtime field. A different host requires an explicit adapter
+and executor binding before it is valid.
 
 ### Input authority and write policy
 
@@ -412,7 +444,11 @@ fingerprint, contract revision, and declared inputs determine freshness.
 requires isolation, read-only execution, a shared input fingerprint, complete
 partition coverage, finding reconciliation, persisted-contract reconciliation,
 and exactly one authoritative coordinator session. Inspector output cannot
-contain a receipt or verdict.
+contain a receipt or verdict. Typed partition findings must describe a
+candidate-design defect; `resolvedFindings` lets the coordinator close findings
+that only restate already-complete task authority or observe expected legacy
+code. New runner results include normalized launcher usage while older v1
+results without that additive field remain valid.
 
 ### Skills
 

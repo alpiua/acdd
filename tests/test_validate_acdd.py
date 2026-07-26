@@ -60,12 +60,19 @@ def _verification_result(*, runtime: str = "pi") -> dict[str, object]:
         "readOnly": True,
         "authoritativeSessionUuids": [session],
         "persistedContractIds": [],
+        "usage": {
+            "launches": [],
+            "totals": {
+                "input": 0, "output": 0, "cacheRead": 0,
+                "cacheWrite": 0, "cost": 0, "totalTokens": 0,
+            },
+        },
         "partitions": [
             {
                 "id": partition,
                 "status": "pass",
                 "inputFingerprint": fingerprint,
-                "evidence": [f"bounded evidence for {partition}"],
+                "evidence": [f"services/{partition}.py:1"],
                 "findings": [],
                 "discovery": _discovery_receipt(),
                 "persistedContractMappings": [],
@@ -79,7 +86,35 @@ def _verification_result(*, runtime: str = "pi") -> dict[str, object]:
             "verdict": "PASS",
             "findingsReconciled": True,
             "persistedContractsReconciled": True,
+            "resolvedFindings": [],
+            "reconciledRecommendations": [],
         },
+    }
+
+
+def _architectural_recommendation() -> dict[str, object]:
+    return {
+        "id": "owner-boundary-1",
+        "sourceFindings": ["callers:1"],
+        "invariant": "The canonical contract is uniform for every production caller.",
+        "rootCause": "The contract is enforced in one caller instead of its owner.",
+        "canonicalOwner": "packages/core public contract and owning service boundary",
+        "requiredChange": "Enforce the invariant at the owner and propagate the canonical type.",
+        "propagation": ["direct callers", "alternate callers", "transport", "storage backends"],
+        "prohibitedShortcuts": ["caller-local branch", "compatibility cast", "fallback"],
+        "acceptanceProof": ["owner unit proof", "caller parity proof", "backend parity proof"],
+        "evidence": ["services/callers.py:1"],
+    }
+
+
+def _candidate_finding() -> dict[str, object]:
+    return {
+        "id": "callers-contract-gap",
+        "defectKind": "incomplete-propagation",
+        "candidateDefect": "The task omits one production caller.",
+        "taskEvidence": ["task.md:10"],
+        "codeEvidence": ["services/callers.py:1"],
+        "requiredTaskChange": "Add the caller and its proof to the task contract.",
     }
 
 
@@ -188,9 +223,21 @@ def test_split_architecture_launchers_are_validated_and_legacy_remains_supported
         "inspector": copy.deepcopy(legacy),
         "coordinator": copy.deepcopy(legacy),
     }
+    inspector_arguments = architecture["launchers"]["inspector"]["arguments"]
+    inspector_arguments[inspector_arguments.index("--tools") + 1] = "mcp"
+    coordinator_arguments = architecture["launchers"]["coordinator"]["arguments"]
+    tools_index = coordinator_arguments.index("--tools")
+    del coordinator_arguments[tools_index : tools_index + 2]
+    coordinator_arguments.append("--no-tools")
     MODULE._validate_executor_gate_procedures(
         procedures, core, "task", adapter_path, ROOT, "adapter.gateProcedures"
     )
+    coordinator_arguments[-1:] = ["--tools", "mcp"]
+    with pytest.raises(MODULE.ContractError, match="coordinator launcher must disable all tools"):
+        MODULE._validate_executor_gate_procedures(
+            procedures, core, "task", adapter_path, ROOT, "adapter.gateProcedures"
+        )
+    coordinator_arguments[-2:] = ["--no-tools"]
     architecture["launcher"] = copy.deepcopy(legacy)
     with pytest.raises(MODULE.ContractError, match="launcher or launchers"):
         MODULE._validate_executor_gate_procedures(
@@ -406,6 +453,38 @@ def test_parallel_verification_is_read_only_and_requires_every_partition() -> No
             contract, core.architecture_verification_schema, inspector_receipt
         )
 
+    legacy_contract = copy.deepcopy(contract)
+    legacy_contract["coordinatorPolicy"].pop("allowResolvedFindings")
+    legacy_contract.pop("findingContract")
+    ARCH.validate_contract(legacy_contract, core.architecture_verification_schema)
+
+
+def test_fail_requires_complete_coordinator_recommendation_and_exact_finding_coverage() -> None:
+    core = MODULE.load_core(ROOT / "profiles" / "task" / "v1.yaml")
+    assert core.architecture_verification_schema is not None
+    contract = ARCH.load_yaml(ROOT / "examples" / "task" / "architecture-verification.yaml")
+    result = _verification_result()
+    result["partitions"][2]["status"] = "fail"
+    result["partitions"][2]["findings"] = [_candidate_finding()]
+    result["coordinator"]["verdict"] = "FAIL"
+    result["coordinator"]["reconciledRecommendations"] = [_architectural_recommendation()]
+    ARCH.validate_result(contract, core.architecture_verification_schema, result)
+
+    missing_owner = copy.deepcopy(result)
+    del missing_owner["coordinator"]["reconciledRecommendations"][0]["canonicalOwner"]
+    with pytest.raises(ARCH.ArchitectureVerificationError, match="fields must exactly match"):
+        ARCH.validate_result(contract, core.architecture_verification_schema, missing_owner)
+
+    missing_finding = copy.deepcopy(result)
+    missing_finding["coordinator"]["reconciledRecommendations"][0]["sourceFindings"] = ["authority:1"]
+    with pytest.raises(ARCH.ArchitectureVerificationError, match="every inspector finding"):
+        ARCH.validate_result(contract, core.architecture_verification_schema, missing_finding)
+
+    raw_only = copy.deepcopy(result)
+    raw_only["coordinator"]["reconciledRecommendations"] = []
+    with pytest.raises(ARCH.ArchitectureVerificationError, match="architecturally complete"):
+        ARCH.validate_result(contract, core.architecture_verification_schema, raw_only)
+
 
 def test_capability_validation_accepts_equivalent_83b_runtime() -> None:
     core = MODULE.load_core(ROOT / "profiles" / "task" / "v1.yaml")
@@ -418,10 +497,42 @@ def test_capability_validation_accepts_equivalent_83b_runtime() -> None:
     ARCH.validate_result(contract, core.architecture_verification_schema, result)
 
 
+def test_architecture_v1_accepts_historical_result_without_usage_or_resolutions() -> None:
+    core = MODULE.load_core(ROOT / "profiles" / "task" / "v1.yaml")
+    assert core.architecture_verification_schema is not None
+    contract = ARCH.load_yaml(ROOT / "examples" / "task" / "architecture-verification.yaml")
+    result = _verification_result()
+    del result["usage"]
+    del result["coordinator"]["resolvedFindings"]
+    ARCH.validate_result(contract, core.architecture_verification_schema, result)
+
+
+def test_architecture_usage_totals_must_match_all_launcher_attempts() -> None:
+    core = MODULE.load_core(ROOT / "profiles" / "task" / "v1.yaml")
+    assert core.architecture_verification_schema is not None
+    contract = ARCH.load_yaml(ROOT / "examples" / "task" / "architecture-verification.yaml")
+    result = _verification_result()
+    result["usage"]["launches"] = [{
+        "role": "inspector",
+        "partition": "contract",
+        "attempt": 1,
+        "sessionUuid": "83b57c2d-75ed-4dee-9f50-e20818ab6f53",
+        "available": True,
+        "input": 10,
+        "output": 2,
+        "cacheRead": 3,
+        "cacheWrite": 0,
+        "cost": 0.1,
+        "totalTokens": 15,
+    }]
+    with pytest.raises(ARCH.ArchitectureVerificationError, match="totals"):
+        ARCH.validate_result(contract, core.architecture_verification_schema, result)
+
+
 def test_fail_retry_requires_a_changed_fingerprint_and_plan_is_explicit() -> None:
     failed = _verification_result()
     failed["partitions"][0]["status"] = "fail"
-    failed["partitions"][0]["findings"] = ["contract gap"]
+    failed["partitions"][0]["findings"] = [_candidate_finding()]
     failed["coordinator"]["verdict"] = "FAIL"
     unchanged = failed["inputFingerprint"]
     with pytest.raises(ARCH.ArchitectureVerificationError, match="unchanged FAIL"):

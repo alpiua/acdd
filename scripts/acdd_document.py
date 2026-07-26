@@ -11,7 +11,7 @@ from acdd_fingerprint import (
     DIGEST_RE,
     FingerprintError,
     SemanticFingerprint,
-    fingerprint_architecture_code_inputs,
+    fingerprint_architecture_candidate,
     fingerprint_inputs,
     markdown_sections,
     parse_inputs,
@@ -1006,12 +1006,15 @@ def validate_document(
                 if class_sets
                 else None
             )
+        legacy_architecture_fingerprint: str | None = None
         if policy.gate == "architecture/v1":
-            current = fingerprint_architecture_code_inputs(
+            architecture_candidate = fingerprint_architecture_candidate(
                 document=document,
                 adapters=adapters,
                 workspace_root=workspace_root,
-            ).sha256
+            )
+            current = architecture_candidate.sha256
+            legacy_architecture_fingerprint = architecture_candidate.code_sha256
         else:
             current = fingerprint_inputs(
                 document=document,
@@ -1029,10 +1032,17 @@ def validate_document(
         # agreement below is always verifiable, so tampering is still caught.
         if (
             gate_evidence.input_fingerprint != receipt.input_fingerprint
-            or (active and receipt.input_fingerprint != current)
+            or (
+                active
+                and receipt.input_fingerprint
+                not in {current, legacy_architecture_fingerprint}
+            )
         ):
+            expected = current
+            if legacy_architecture_fingerprint is not None:
+                expected += f" or legacy {legacy_architecture_fingerprint}"
             raise DocumentError(
-                f"receipt {policy.gate}: stale input fingerprint; expected {current}, "
+                f"receipt {policy.gate}: stale input fingerprint; expected {expected}, "
                 f"found {receipt.input_fingerprint}"
             )
         if receipt.status in policy.terminal_statuses and not terminal_seen:

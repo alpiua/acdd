@@ -20,7 +20,9 @@ Assume a task adds a field to an API response.
 
 1. Bind the task and owner adapters.
 2. In G0, identify the response owner, serializer, callers, storage path,
-   compatibility impact, and proof IDs. Obtain independent architecture PASS.
+   compatibility impact, and proof IDs. Run the adapter-owned architecture
+   command: one preflight, four read-only inspectors, then one coordinator.
+   Obtain independent architecture PASS before implementation.
 3. In RED, run the smallest test that fails because the field is absent.
 4. Implement only the approved contract.
 5. Prove the real API caller. Run parity if multiple backends or public forms

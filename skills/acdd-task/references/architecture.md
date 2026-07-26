@@ -46,7 +46,7 @@ attempts:
     recordedAt: "2026-07-24T12:00:00Z"
 ```
 
-An architecture receipt may pass only when every partition reviews the complete owning repository, not only the diff or named files, and the proposed slice identifies:
+An architecture receipt may pass only when every partition reviews the complete task-scoped code map under the adapter-authorized implementation roots, not only the diff or one named file, and the proposed slice identifies:
 
 1. the canonical owner and desired end state;
 2. the production trigger → caller → contract → owner → consumer path across every package and service;
@@ -59,13 +59,31 @@ An architecture receipt may pass only when every partition reviews the complete 
 
 Before PASS, each reviewer must produce receipts for three capabilities: bounded exact-text search, structural search, and reverse dependency traversal. The executor adapter binds those capabilities to host tools; `grep`/`ctx_search`, `ast-grep`/`ast_grep_search`, and `code_map_query(operation=impact)` are ContextUnity bindings, not universal tool names. One tool may satisfy the dependency capability by itself; adapters must not require a second traversal tool when the bound operation already returns reverse impact. Use `operation=path` for a bounded dependency chain when the review question requires one. Assigned paths are entry points, not read boundaries. Missing capability, rejected call, unresolved selector, truncation without a widened follow-up query, or unreconciled discovery makes the partition incomplete and forbids PASS. Every partition result must carry typed `discovery.repositoryRoot` and `discovery.methods.{exactText,structural,dependency}` receipts with the canonical capability, actual tools, non-empty queries, and `complete: true`.
 
-Launch the independent session from the executor adapter's `launcher`, never
-from its `runtime` value. `runtime` records provenance only. For a command
-launcher, verify `launcher.target` through the host command executor, substitute
-declared placeholders in `launcher.arguments`, append the verifier prompt when
-`promptTransport: final-argument`, and run it from the resolved `commandCwd`.
-For a tool launcher, invoke the exact `launcher.target` tool with typed
-parameters. A runtime label in `toolEnvelope` is a contract error.
+The implementation fingerprint is one snapshot of declared files whose resolved paths are under the allowed `services/`, `packages/`, `core/`, or `extensions/` roots. Task semantic sections are combined with that code fingerprint to form the architecture candidate. Admission history, receipts, adapters, runner source, documentation, `.pi*` artifacts, and other workflow state do not change the candidate. A semantic task-authority edit therefore creates a new candidate without requiring a product-code edit.
+
+The runner executes this state machine:
+
+```text
+fingerprint → preflight → admission → one code snapshot
+→ four concurrent inspectors → validate all outputs
+→ one tool-free coordinator → recheck inputs
+→ terminal PASS/FAIL/BLOCKED → bounded attempt/evidence
+```
+
+Inspectors receive read-only task and code access. Code is a feasibility, ownership, caller, and persistence baseline; unfinished legacy implementation is not a G0 defect. A partition `FAIL` is valid only when its finding is a typed `missing-requirement`, `contradiction`, `infeasible-boundary`, `incomplete-propagation`, or `unprovable-acceptance` defect in the frozen task candidate, with task evidence, code evidence, and a required task-authority change. The coordinator compares every source finding with frozen semantic task authority: findings already specified by the task or caused only by unfinished implementation go to `resolvedFindings`; genuine defects become one bounded architectural recommendation batch. Coordinator formatting retries do not rerun inspectors. A schema/transport failure is `BLOCKED`, preserves all completed partition outputs, and does not consume the material FAIL cap.
+
+Launch independent sessions from the executor adapter's `launchers.inspector` and `launchers.coordinator`, never from its `runtime` value. `runtime` records provenance only. The legacy singular `launcher` remains compatible, but a procedure must declare either `launcher` or `launchers`, never both. For a command launcher, verify the concrete target through the host command executor, substitute declared placeholders in its arguments, append the verifier prompt when `promptTransport: final-argument`, and run it from the resolved `commandCwd`.
+For a tool launcher in a gate that supports tool transport, invoke the exact
+`launcher.target` tool with typed parameters. The host-neutral architecture
+runner currently executes command/final-argument launchers; adapters using a
+different transport need an executor-specific runner. The coordinator starts
+only after all four inspectors terminate with validated outputs and must not
+search or call tools. A schema/transport failure is `BLOCKED`; preserve all
+completed partitions and bounded redacted raw response content, including plain-text
+`FAIL`, without consuming the material FAIL cap. A runtime label in
+`toolEnvelope` is a contract error.
+The Planner adapter currently constrains `architecture/v1` to Pi command
+launchers; this is adapter policy, not a universal ACDD runtime assumption.
 
 For each persisted contract, use the task's `Persisted contract propagation` matrix. The contract and persistence partitions must independently map every contract ID, and the coordinator must reconcile contract definitions and file dispositions. Any restriction, reinterpretation, or removal of previously persisted acceptance or meaning forbids PASS without an explicit backfill, compatibility bridge, or fail-closed preflight and executable proof. Tests through helper, mock, parity-only, or legacy APIs do not prove the canonical production reader.
 

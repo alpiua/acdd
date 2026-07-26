@@ -226,11 +226,17 @@ gateProcedures:
   architecture/v1:
     operation: architecture-verify
     runtime: pi
-    launcher:
-      kind: command
-      target: pi
-      arguments: [--print, --session-id, "{sessionUuid}"]
-      promptTransport: final-argument
+    launchers:
+      inspector:
+        kind: command
+        target: pi
+        arguments: [--print, --session-id, "{sessionUuid}"]
+        promptTransport: final-argument
+      coordinator:
+        kind: command
+        target: pi
+        arguments: [--print, --session-id, "{sessionUuid}", --no-tools]
+        promptTransport: final-argument
     toolEnvelope:
       admit: [read, grep, find, ls]
       deny: [bash, edit, write]
@@ -248,6 +254,12 @@ Rules:
 - Admit only tools actually available inside the launched session.
 - Deny writes for architecture inspectors and terminal reviewers unless a
   future profile explicitly authorizes them.
+- Use `launchers.inspector` for the four concurrent partition processes and
+  `launchers.coordinator` only after all four outputs validate. The coordinator
+  must be tool-free and receives only the frozen task authority plus validated
+  partition outputs.
+- A procedure may declare the legacy singular `launcher` or split `launchers`,
+  never both. Paths resolve from the owning adapter.
 
 For task `architecture/v1`, bind:
 
@@ -262,6 +274,13 @@ Follow
 [`contracts/architecture-verification/v1.yaml`](contracts/architecture-verification/v1.yaml):
 inspectors share the input fingerprint, may not write, issue receipts, or return
 a verdict; one coordinator reconciles every partition and returns the verdict.
+Inspectors have read-only access to the task and implementation code. Code is a
+feasibility/impact baseline, not an implementation-completion gate. A `FAIL`
+must be a typed task-candidate defect with task evidence, code evidence, and a
+required task-authority change. Legacy or unimplemented code alone is not a
+finding. Runtime/transport/schema failures are `BLOCKED` and preserve completed
+partition results plus bounded redacted raw response content, including plain-text
+`FAIL` output.
 
 For terminal `review/v1`, launch only after source, tests, configuration, and
 release evidence settle. Classify findings in the primary session, apply only
@@ -297,7 +316,9 @@ its declared proof inputs.
 Review evidence includes adapter, isolated session UUIDs, reviewer/coordinator,
 terminal verdict, authority sources, production and alternate paths,
 contradictions, impact axes, proof mappings, and bounded findings. Never paste
-raw subagent transcripts.
+raw subagent transcripts. Architecture runner evidence may additionally include
+normalized bounded usage per launcher and aggregate usage; the usage transport
+is adapter-specific, not inherently Pi-specific.
 
 ### Fingerprints and invalidation
 

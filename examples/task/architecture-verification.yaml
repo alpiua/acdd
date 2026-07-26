@@ -24,13 +24,18 @@ inspectorPolicy:
 partitionOutput:
   required: [id, status, inputFingerprint, evidence, findings, discovery, persistedContractMappings, isolated, readOnly]
   status: [pass, fail]
-  evidence: bounded file-line findings and verified proof mappings
+  evidence: bounded file-line evidence plus typed candidate-design defects; unfinished implementation alone is not a finding
 coordinatorPolicy:
   authoritativeSessions: 1
   requireEveryPartition: true
   requireFindingReconciliation: true
   requirePersistedContractReconciliation: true
+  allowResolvedFindings: true
   verdictOwner: coordinator
+findingContract:
+  requiredFields: [id, defectKind, candidateDefect, taskEvidence, codeEvidence, requiredTaskChange]
+  defectKinds: [missing-requirement, contradiction, infeasible-boundary, incomplete-propagation, unprovable-acceptance]
+  currentCodeOnlyIsFinding: false
 receiptValidation:
   requiredCapabilities: [independent_review, review_execution]
   requireIsolated: true

@@ -46,11 +46,28 @@ def _uuid(value: object, label: str) -> str:
     return value
 
 
-_DISCOVERY_CAPABILITIES = {
+DISCOVERY_CAPABILITIES = {
     "exactText": "source_map",
     "structural": "structural_search",
     "dependency": "impact",
 }
+
+PARTITION_FINDING_FIELDS = {
+    "id",
+    "defectKind",
+    "candidateDefect",
+    "taskEvidence",
+    "codeEvidence",
+    "requiredTaskChange",
+}
+PARTITION_DEFECT_KINDS = {
+    "missing-requirement",
+    "contradiction",
+    "infeasible-boundary",
+    "incomplete-propagation",
+    "unprovable-acceptance",
+}
+USAGE_FIELDS = {"input", "output", "cacheRead", "cacheWrite", "cost", "totalTokens"}
 
 
 def _validate_discovery(value: object, label: str) -> None:
@@ -63,11 +80,11 @@ def _validate_discovery(value: object, label: str) -> None:
     if not isinstance(repository_root, str) or not repository_root.strip():
         raise ArchitectureVerificationError(f"{label}.repositoryRoot must be non-empty")
     methods = _mapping(discovery.get("methods"), f"{label}.methods")
-    if set(methods) != set(_DISCOVERY_CAPABILITIES):
+    if set(methods) != set(DISCOVERY_CAPABILITIES):
         raise ArchitectureVerificationError(
             f"{label}.methods must contain exactText, structural, and dependency"
         )
-    for method, required_capability in _DISCOVERY_CAPABILITIES.items():
+    for method, required_capability in DISCOVERY_CAPABILITIES.items():
         receipt = _mapping(methods.get(method), f"{label}.methods.{method}")
         if set(receipt) != {"capability", "tools", "queries", "complete"}:
             raise ArchitectureVerificationError(
@@ -83,6 +100,252 @@ def _validate_discovery(value: object, label: str) -> None:
             raise ArchitectureVerificationError(
                 f"{label}.methods.{method}.complete must be true"
             )
+
+
+def validate_partition_output(
+    value: object,
+    schema: dict[str, Any],
+    *,
+    label: str,
+    expected_id: str | None = None,
+    expected_fingerprint: str | None = None,
+    expected_value_domain_ids: set[str] | frozenset[str] | None = None,
+    expected_document: Path | None = None,
+) -> tuple[str, str, set[str]]:
+    partition = _mapping(value, label)
+    required = set(schema["partitionRequiredFields"])
+    blocked = set(schema["partitionForbiddenFields"]) & set(partition)
+    if blocked:
+        raise ArchitectureVerificationError(f"{label} cannot contain {sorted(blocked)}")
+    if set(partition) != required:
+        raise ArchitectureVerificationError(
+            f"{label} fields must exactly match {sorted(required)}"
+        )
+    partition_id = partition.get("id")
+    if not isinstance(partition_id, str) or not partition_id.strip():
+        raise ArchitectureVerificationError(f"{label}.id must be a non-empty string")
+    if expected_id is not None and partition_id != expected_id:
+        raise ArchitectureVerificationError(f"{label}.id must be {expected_id!r}")
+    fingerprint = _fingerprint(partition.get("inputFingerprint"), f"{label}.inputFingerprint")
+    if expected_fingerprint is not None and fingerprint != expected_fingerprint:
+        raise ArchitectureVerificationError(f"{label}.inputFingerprint must match the review input")
+    status = partition.get("status")
+    if status not in {"pass", "fail"}:
+        raise ArchitectureVerificationError(f"{label}.status must be pass or fail")
+    if partition.get("isolated") is not True or partition.get("readOnly") is not True:
+        raise ArchitectureVerificationError(f"{label} must be isolated and read-only")
+    evidence = _strings(partition.get("evidence"), f"{label}.evidence")
+    if any(re.fullmatch(r".+:[1-9][0-9]*", item) is None for item in evidence):
+        raise ArchitectureVerificationError(f"{label}.evidence items must use path:line strings")
+    _validate_discovery(partition.get("discovery"), f"{label}.discovery")
+    findings = partition.get("findings")
+    if not isinstance(findings, list):
+        raise ArchitectureVerificationError(f"{label}.findings must be a list")
+    finding_ids: list[str] = []
+    for index, raw_finding in enumerate(findings):
+        finding_label = f"{label}.findings[{index}]"
+        finding = _mapping(raw_finding, finding_label)
+        if set(finding) != PARTITION_FINDING_FIELDS:
+            raise ArchitectureVerificationError(
+                f"{finding_label} fields must exactly match {sorted(PARTITION_FINDING_FIELDS)}"
+            )
+        for field in ("id", "candidateDefect", "requiredTaskChange"):
+            field_value = finding.get(field)
+            if not isinstance(field_value, str) or not field_value.strip():
+                raise ArchitectureVerificationError(f"{finding_label}.{field} must be non-empty")
+        finding_ids.append(str(finding["id"]))
+        if finding.get("defectKind") not in PARTITION_DEFECT_KINDS:
+            raise ArchitectureVerificationError(
+                f"{finding_label}.defectKind must be one of {sorted(PARTITION_DEFECT_KINDS)}"
+            )
+        for field in ("taskEvidence", "codeEvidence"):
+            refs = _strings(finding.get(field), f"{finding_label}.{field}")
+            if any(re.fullmatch(r".+:[1-9][0-9]*", item) is None for item in refs):
+                raise ArchitectureVerificationError(
+                    f"{finding_label}.{field} items must use path:line strings"
+                )
+        if expected_document is not None:
+            task_refs = list(finding["taskEvidence"])
+            if any(
+                not item.rsplit(":", 1)[0].replace("\\", "/").endswith(expected_document.name)
+                for item in task_refs
+            ):
+                raise ArchitectureVerificationError(
+                    f"{finding_label}.taskEvidence must reference the bound task document"
+                )
+    if len(finding_ids) != len(set(finding_ids)):
+        raise ArchitectureVerificationError(f"{label}.finding ids must be unique")
+    if status == "pass" and findings:
+        raise ArchitectureVerificationError(f"{label} cannot pass with findings")
+    if status == "fail" and not findings:
+        raise ArchitectureVerificationError(f"{label} cannot fail without a candidate-design finding")
+    mappings = partition.get("persistedContractMappings")
+    if not isinstance(mappings, list) or not all(
+        isinstance(item, str) and item.strip() for item in mappings
+    ):
+        raise ArchitectureVerificationError(
+            f"{label}.persistedContractMappings must be a string list"
+        )
+    if len(mappings) != len(set(mappings)):
+        raise ArchitectureVerificationError(
+            f"{label}.persistedContractMappings cannot contain duplicates"
+        )
+    expected_domains = set(expected_value_domain_ids or ())
+    if expected_value_domain_ids is not None and not set(mappings) <= expected_domains:
+        raise ArchitectureVerificationError(f"{label} maps unknown persisted contracts")
+    if expected_value_domain_ids is not None and partition_id in {"contract", "persistence"} and set(mappings) != expected_domains:
+        raise ArchitectureVerificationError(
+            f"{label}.persistedContractMappings must exactly cover the task domain IDs"
+        )
+    return partition_id, str(status), set(mappings)
+
+
+RECONCILED_RECOMMENDATION_FIELDS = {
+    "id",
+    "sourceFindings",
+    "invariant",
+    "rootCause",
+    "canonicalOwner",
+    "requiredChange",
+    "propagation",
+    "prohibitedShortcuts",
+    "acceptanceProof",
+    "evidence",
+}
+
+
+def _validate_reconciled_recommendations(
+    coordinator: dict[str, Any],
+    partitions: list[object],
+    verdict: str,
+) -> list[dict[str, Any]]:
+    raw_refs = {
+        f"{partition['id']}:{index}"
+        for partition in partitions
+        if isinstance(partition, dict)
+        for index, _ in enumerate(partition.get("findings", []), 1)
+    }
+    resolved = coordinator.get("resolvedFindings", [])
+    if not isinstance(resolved, list) or not all(
+        isinstance(item, str) and item.strip() for item in resolved
+    ):
+        raise ArchitectureVerificationError(
+            "coordinator.resolvedFindings must be a string list"
+        )
+    if len(resolved) != len(set(resolved)):
+        raise ArchitectureVerificationError(
+            "coordinator.resolvedFindings cannot contain duplicates"
+        )
+    raw = coordinator.get("reconciledRecommendations")
+    if not isinstance(raw, list):
+        raise ArchitectureVerificationError(
+            "coordinator.reconciledRecommendations must be a list"
+        )
+    if verdict == "PASS" and raw:
+        raise ArchitectureVerificationError(
+            "PASS cannot contain reconciled recommendations"
+        )
+    if verdict == "FAIL" and not raw:
+        raise ArchitectureVerificationError(
+            "FAIL must contain an architecturally complete reconciled recommendation"
+        )
+    recommendations: list[dict[str, Any]] = []
+    covered_refs: list[str] = list(resolved)
+    ids: list[str] = []
+    for index, value in enumerate(raw):
+        label = f"coordinator.reconciledRecommendations[{index}]"
+        recommendation = _mapping(value, label)
+        if set(recommendation) != RECONCILED_RECOMMENDATION_FIELDS:
+            raise ArchitectureVerificationError(
+                f"{label} fields must exactly match {sorted(RECONCILED_RECOMMENDATION_FIELDS)}"
+            )
+        recommendation_id = recommendation.get("id")
+        if not isinstance(recommendation_id, str) or not recommendation_id.strip():
+            raise ArchitectureVerificationError(f"{label}.id must be non-empty")
+        ids.append(recommendation_id)
+        for field in (
+            "invariant",
+            "rootCause",
+            "canonicalOwner",
+            "requiredChange",
+        ):
+            field_value = recommendation.get(field)
+            if not isinstance(field_value, str) or not field_value.strip():
+                raise ArchitectureVerificationError(f"{label}.{field} must be non-empty")
+        source_refs = _strings(recommendation.get("sourceFindings"), f"{label}.sourceFindings")
+        covered_refs.extend(source_refs)
+        for field in (
+            "propagation",
+            "prohibitedShortcuts",
+            "acceptanceProof",
+            "evidence",
+        ):
+            values = _strings(recommendation.get(field), f"{label}.{field}")
+            if field == "evidence" and any(
+                re.fullmatch(r".+:[1-9][0-9]*", item) is None for item in values
+            ):
+                raise ArchitectureVerificationError(
+                    f"{label}.evidence items must use path:line strings"
+                )
+        recommendations.append(recommendation)
+    if len(ids) != len(set(ids)):
+        raise ArchitectureVerificationError("reconciled recommendation ids must be unique")
+    if len(covered_refs) != len(set(covered_refs)):
+        raise ArchitectureVerificationError(
+            "each source finding must be resolved or belong to exactly one reconciled recommendation"
+        )
+    if set(covered_refs) != raw_refs:
+        raise ArchitectureVerificationError(
+            "resolved findings and reconciled recommendations must cover every inspector finding exactly once"
+        )
+    return recommendations
+
+
+def _validate_usage(value: object, label: str = "result.usage") -> None:
+    usage = _mapping(value, label)
+    if set(usage) != {"launches", "totals"}:
+        raise ArchitectureVerificationError(f"{label} must contain launches and totals only")
+    launches = usage.get("launches")
+    if not isinstance(launches, list):
+        raise ArchitectureVerificationError(f"{label}.launches must be a list")
+    sums = {field: 0 for field in USAGE_FIELDS}
+    for index, raw in enumerate(launches):
+        item_label = f"{label}.launches[{index}]"
+        item = _mapping(raw, item_label)
+        required = {
+            "role", "partition", "attempt", "sessionUuid", "available", *USAGE_FIELDS
+        }
+        if set(item) != required:
+            raise ArchitectureVerificationError(
+                f"{item_label} fields must exactly match {sorted(required)}"
+            )
+        if item.get("role") not in {"inspector", "coordinator"}:
+            raise ArchitectureVerificationError(f"{item_label}.role is invalid")
+        if not isinstance(item.get("partition"), str) or not item["partition"].strip():
+            raise ArchitectureVerificationError(f"{item_label}.partition must be non-empty")
+        if not isinstance(item.get("attempt"), int) or item["attempt"] < 1:
+            raise ArchitectureVerificationError(f"{item_label}.attempt must be positive")
+        _uuid(item.get("sessionUuid"), f"{item_label}.sessionUuid")
+        if not isinstance(item.get("available"), bool):
+            raise ArchitectureVerificationError(f"{item_label}.available must be boolean")
+        for field in USAGE_FIELDS:
+            number = item.get(field)
+            if isinstance(number, bool) or not isinstance(number, (int, float)) or number < 0:
+                raise ArchitectureVerificationError(f"{item_label}.{field} must be non-negative")
+            sums[field] += number
+        if item["totalTokens"] != (
+            item["input"] + item["output"] + item["cacheRead"] + item["cacheWrite"]
+        ):
+            raise ArchitectureVerificationError(f"{item_label}.totalTokens is inconsistent")
+        if item["available"] is False and any(item[field] != 0 for field in USAGE_FIELDS):
+            raise ArchitectureVerificationError(f"{item_label} unavailable usage must be zero")
+    totals = _mapping(usage.get("totals"), f"{label}.totals")
+    if set(totals) != USAGE_FIELDS:
+        raise ArchitectureVerificationError(
+            f"{label}.totals fields must exactly match {sorted(USAGE_FIELDS)}"
+        )
+    if any(totals[field] != sums[field] for field in USAGE_FIELDS):
+        raise ArchitectureVerificationError(f"{label}.totals must equal launch sums")
 
 
 def load_yaml(path: Path) -> dict[str, Any]:
@@ -125,12 +388,20 @@ def validate_schema(schema: dict[str, Any]) -> dict[str, Any]:
         "requireEveryPartition": True,
         "requireFindingReconciliation": True,
         "requirePersistedContractReconciliation": True,
+        "allowResolvedFindings": True,
         "verdictOwner": "coordinator",
     }.items():
         if coordinator.get(field) != expected:
             raise ArchitectureVerificationError(
                 f"schema.coordinatorPolicy.{field} must be {expected!r}"
             )
+    finding_contract = _mapping(schema.get("findingContract"), "schema.findingContract")
+    if set(_strings(finding_contract.get("requiredFields"), "schema.findingContract.requiredFields")) != PARTITION_FINDING_FIELDS:
+        raise ArchitectureVerificationError("schema.findingContract.requiredFields must define the typed candidate finding")
+    if set(_strings(finding_contract.get("defectKinds"), "schema.findingContract.defectKinds")) != PARTITION_DEFECT_KINDS:
+        raise ArchitectureVerificationError("schema.findingContract.defectKinds must define the supported candidate defects")
+    if finding_contract.get("currentCodeOnlyIsFinding") is not False:
+        raise ArchitectureVerificationError("schema.findingContract.currentCodeOnlyIsFinding must be false")
     forbidden = set(_strings(schema.get("partitionForbiddenFields"), "schema.partitionForbiddenFields"))
     if forbidden != {"receipt", "verdict"}:
         raise ArchitectureVerificationError(
@@ -208,8 +479,20 @@ def validate_contract(
             )
     if contract.get("inspectorPolicy") != schema.get("inspectorPolicy"):
         raise ArchitectureVerificationError("contract inspectorPolicy must preserve the schema")
-    if contract.get("coordinatorPolicy") != schema.get("coordinatorPolicy"):
+    contract_coordinator_policy = contract.get("coordinatorPolicy")
+    schema_coordinator_policy = _mapping(schema.get("coordinatorPolicy"), "schema.coordinatorPolicy")
+    legacy_coordinator_policy = {
+        key: value
+        for key, value in schema_coordinator_policy.items()
+        if key != "allowResolvedFindings"
+    }
+    if contract_coordinator_policy != schema_coordinator_policy and contract_coordinator_policy != legacy_coordinator_policy:
         raise ArchitectureVerificationError("contract coordinatorPolicy must preserve the schema")
+    if (
+        "findingContract" in contract
+        and contract.get("findingContract") != schema.get("findingContract")
+    ):
+        raise ArchitectureVerificationError("contract findingContract must preserve the schema")
     partition_output = _mapping(contract.get("partitionOutput"), "contract.partitionOutput")
     contract_required = set(
         _strings(partition_output.get("required"), "contract.partitionOutput.required")
@@ -255,6 +538,8 @@ def validate_result(
         raise ArchitectureVerificationError(
             f"result misses required fields {sorted(missing_result)}"
         )
+    if "usage" in result:
+        _validate_usage(result.get("usage"))
     fingerprint = _fingerprint(result.get("inputFingerprint"), "result.inputFingerprint")
     runtime = result.get("runtime")
     if not isinstance(runtime, str) or not runtime.strip():
@@ -297,69 +582,17 @@ def validate_result(
     actual_ids: list[str] = []
     statuses: list[str] = []
     partition_value_domains: dict[str, set[str]] = {}
-    forbidden = set(schema["partitionForbiddenFields"])
     for index, raw in enumerate(partitions):
-        partition = _mapping(raw, f"result.partitions[{index}]")
-        missing_partition = set(schema["partitionRequiredFields"]) - set(partition)
-        if missing_partition:
-            raise ArchitectureVerificationError(
-                f"result.partitions[{index}] misses {sorted(missing_partition)}"
-            )
-        blocked = forbidden & set(partition)
-        if blocked:
-            raise ArchitectureVerificationError(
-                f"result partition cannot contain {sorted(blocked)}"
-            )
-        partition_id = partition.get("id")
-        if not isinstance(partition_id, str):
-            raise ArchitectureVerificationError(
-                f"result.partitions[{index}].id must be a string"
-            )
-        actual_ids.append(partition_id)
-        if _fingerprint(
-            partition.get("inputFingerprint"),
-            f"result.partitions[{index}].inputFingerprint",
-        ) != fingerprint:
-            raise ArchitectureVerificationError(
-                "every partition must use the shared input fingerprint"
-            )
-        status = partition.get("status")
-        if status not in {"pass", "fail"}:
-            raise ArchitectureVerificationError(
-                f"result.partitions[{index}].status must be pass or fail"
-            )
-        statuses.append(str(status))
-        _strings(partition.get("evidence"), f"result.partitions[{index}].evidence")
-        _validate_discovery(
-            partition.get("discovery"), f"result.partitions[{index}].discovery"
+        partition_id, status, mappings = validate_partition_output(
+            raw,
+            schema,
+            label=f"result.partitions[{index}]",
+            expected_fingerprint=fingerprint,
+            expected_value_domain_ids=expected_domains,
         )
-        findings = partition.get("findings")
-        if not isinstance(findings, list) or not all(
-            isinstance(item, str) and item.strip() for item in findings
-        ):
-            raise ArchitectureVerificationError(
-                f"result.partitions[{index}].findings must be a string list"
-            )
-        if status == "pass" and findings:
-            raise ArchitectureVerificationError(
-                f"result.partitions[{index}] cannot pass with findings"
-            )
-        mappings = partition.get("persistedContractMappings")
-        if not isinstance(mappings, list) or not all(
-            isinstance(item, str) and item.strip() for item in mappings
-        ):
-            raise ArchitectureVerificationError(
-                f"result.partitions[{index}].persistedContractMappings must be a string list"
-            )
-        if len(mappings) != len(set(mappings)):
-            raise ArchitectureVerificationError(
-                f"result.partitions[{index}].persistedContractMappings cannot contain duplicates"
-            )
-        if not set(mappings) <= expected_domains:
-            raise ArchitectureVerificationError(
-                f"result.partitions[{index}] maps unknown persisted contracts"
-            )
-        partition_value_domains[partition_id] = set(mappings)
+        actual_ids.append(partition_id)
+        statuses.append(status)
+        partition_value_domains[partition_id] = mappings
     if actual_ids != expected_ids:
         raise ArchitectureVerificationError(
             f"result must cover every partition in contract order: {expected_ids}"
@@ -380,15 +613,28 @@ def validate_result(
         raise ArchitectureVerificationError(
             "coordinator must reconcile persisted persisted contracts"
         )
+    expected_coordinator_fields = {
+        "sessionUuid",
+        "verdict",
+        "findingsReconciled",
+        "persistedContractsReconciled",
+        "reconciledRecommendations",
+        "resolvedFindings",
+    }
+    legacy_coordinator_fields = expected_coordinator_fields - {"resolvedFindings"}
+    if frozenset(coordinator) not in {
+        frozenset(expected_coordinator_fields),
+        frozenset(legacy_coordinator_fields),
+    }:
+        raise ArchitectureVerificationError(
+            f"coordinator fields must match the v1 fields with optional resolvedFindings"
+        )
+    _validate_reconciled_recommendations(coordinator, partitions, str(verdict))
     for partition_id in ("contract", "persistence"):
         if partition_value_domains.get(partition_id) != expected_domains:
             raise ArchitectureVerificationError(
                 f"{partition_id} partition must map every persisted persisted contract"
             )
-    if verdict == "PASS" and any(status != "pass" for status in statuses):
-        raise ArchitectureVerificationError(
-            "coordinator cannot PASS unless every partition passes"
-        )
     if verdict == "FAIL" and all(status == "pass" for status in statuses):
         raise ArchitectureVerificationError(
             "coordinator cannot FAIL when every partition passes"

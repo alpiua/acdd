@@ -225,30 +225,55 @@ inputAuthorities:
     declared = {item.path for item in FP.parse_inputs(document.read_text(encoding="utf-8"))}
     assert declared == set(code_paths + ignored_paths)
 
-    def fingerprint() -> str:
+    def code_fingerprint() -> str:
         return FP.fingerprint_architecture_code_inputs(
             document=document,
             adapters=adapters,
             workspace_root=tmp_path,
         ).sha256
 
-    baseline = fingerprint()
+    def candidate_fingerprint() -> str:
+        return FP.fingerprint_architecture_candidate(
+            document=document,
+            adapters=adapters,
+            workspace_root=tmp_path,
+        ).sha256
+
+    baseline = code_fingerprint()
+    baseline_candidate = candidate_fingerprint()
     for relative in ignored_paths:
         path = tmp_path / relative
         original = path.read_text(encoding="utf-8")
         path.write_text(original + " changed", encoding="utf-8")
-        assert fingerprint() == baseline
+        assert code_fingerprint() == baseline
+        assert candidate_fingerprint() == baseline_candidate
         path.write_text(original, encoding="utf-8")
     document.write_text(
         document.read_text(encoding="utf-8").replace("title: fixture", "title: changed"),
         encoding="utf-8",
     )
-    assert fingerprint() == baseline
+    assert code_fingerprint() == baseline
+    assert candidate_fingerprint() == baseline_candidate
+    document.write_text(
+        document.read_text(encoding="utf-8")
+        + "\n## ACDD architecture admission\n\n```yaml\nattempts: []\n```\n",
+        encoding="utf-8",
+    )
+    assert candidate_fingerprint() == baseline_candidate
+    document.write_text(
+        document.read_text(encoding="utf-8").replace(
+            "## Objective\n\ncontract.proof",
+            "## Objective\n\narchitecturally remediated contract.proof",
+        ),
+        encoding="utf-8",
+    )
+    assert code_fingerprint() == baseline
+    assert candidate_fingerprint() != baseline_candidate
     for relative in code_paths:
         path = tmp_path / relative
         original = path.read_text(encoding="utf-8")
         path.write_text(original + " changed", encoding="utf-8")
-        assert fingerprint() != baseline
+        assert code_fingerprint() != baseline
         path.write_text(original, encoding="utf-8")
 
 
@@ -647,11 +672,20 @@ verification:
   readOnly: true
   authoritativeSessionUuids: [019f8f5f-003b-7374-bcbf-00ff511958b0]
   persistedContractIds: []
+  usage:
+    launches: []
+    totals:
+      input: 0
+      output: 0
+      cacheRead: 0
+      cacheWrite: 0
+      cost: 0
+      totalTokens: 0
   partitions:
     - id: contract
       status: pass
       inputFingerprint: {architecture_fp}
-      evidence: [contract transport and RED mapping]
+      evidence: [services/source.py:1]
       findings: []
       discovery: &repository_discovery
         repositoryRoot: .
@@ -677,7 +711,7 @@ verification:
     - id: authority
       status: pass
       inputFingerprint: {architecture_fp}
-      evidence: [authority identity and fail-before-I/O]
+      evidence: [services/source.py:2]
       findings: []
       discovery: *repository_discovery
       persistedContractMappings: []
@@ -686,7 +720,7 @@ verification:
     - id: callers
       status: pass
       inputFingerprint: {architecture_fp}
-      evidence: [direct callers alternate paths retry and cache]
+      evidence: [services/source.py:3]
       findings: []
       discovery: *repository_discovery
       persistedContractMappings: []
@@ -695,7 +729,7 @@ verification:
     - id: persistence
       status: pass
       inputFingerprint: {architecture_fp}
-      evidence: [lifecycle and backend parity]
+      evidence: [services/source.py:4]
       findings: []
       discovery: *repository_discovery
       persistedContractMappings: []
@@ -706,6 +740,8 @@ verification:
     verdict: PASS
     findingsReconciled: true
     persistedContractsReconciled: true
+    resolvedFindings: []
+    reconciledRecommendations: []
 ```"""
     text = document.read_text(encoding="utf-8").replace("```yaml\n[]\n```", evidence)
     text = text.replace(

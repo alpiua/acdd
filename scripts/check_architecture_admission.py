@@ -28,7 +28,7 @@ from architecture_governor import (
     may_launch_architecture,
     parse_architecture_admission,
 )
-from acdd_fingerprint import FingerprintError, fingerprint_architecture_code_inputs
+from acdd_fingerprint import FingerprintError, fingerprint_architecture_candidate
 from validate_acdd import ContractError, _adapter_args
 
 
@@ -61,7 +61,7 @@ def main(argv: list[str] | None = None) -> int:
         if args.fingerprint:
             next_fp = args.fingerprint
         else:
-            next_fp = fingerprint_architecture_code_inputs(
+            next_fp = fingerprint_architecture_candidate(
                 document=document,
                 adapters=adapters,
                 workspace_root=workspace_root,
