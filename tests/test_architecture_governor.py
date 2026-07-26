@@ -24,6 +24,7 @@ def _load(name: str) -> object:
 
 GOV = _load("architecture_governor")
 ARCH = _load("architecture_verification")
+RUNNER = _load("run_architecture")
 
 
 def _digest(data: bytes) -> str:
@@ -185,3 +186,96 @@ def test_check_architecture_admission_cli(tmp_path: Path) -> None:
     # for fingerprint needs full task semantic sections. Use may_launch unit path instead.
     dirty = GOV.collect_dirty_paths(tmp_path)
     assert dirty == ()
+
+def test_runner_rejects_writable_and_incomplete_partition_output() -> None:
+    fingerprint = "sha256:" + "a" * 64
+    partition = {
+        "id": "contract",
+        "status": "pass",
+        "inputFingerprint": fingerprint,
+        "evidence": ["task.md:1"],
+        "findings": [],
+        "persistedContractMappings": [],
+        "isolated": True,
+        "readOnly": True,
+        "discovery": {"methods": {name: {"complete": True} for name in ("exactText", "structural", "dependency")}},
+    }
+    RUNNER.check_partition(partition, "contract", fingerprint)
+    partition["readOnly"] = False
+    with pytest.raises(RUNNER.RunnerError, match="read-only"):
+        RUNNER.check_partition(partition, "contract", fingerprint)
+    partition["readOnly"] = True
+    partition["discovery"]["methods"]["dependency"]["complete"] = False
+    with pytest.raises(RUNNER.RunnerError, match="discovery incomplete"):
+        RUNNER.check_partition(partition, "contract", fingerprint)
+
+
+def test_runner_parses_multiline_json_and_ignores_noise() -> None:
+    output = """startup warning
+```json
+{
+  "id": "contract",
+  "status": "pass"
+}
+```
+"""
+    assert RUNNER.parse_launcher_output(output, ("id", "status")) == {
+        "id": "contract",
+        "status": "pass",
+    }
+
+
+def test_runner_rejects_json_without_required_fields() -> None:
+    with pytest.raises(RUNNER.RunnerError, match="required JSON object"):
+        RUNNER.parse_launcher_output('{"message": "not a partition"}', ("id", "status"))
+
+
+def test_runner_retries_only_transport_or_schema_failure(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    fingerprint = "sha256:" + "b" * 64
+    fields = (
+        "id", "status", "inputFingerprint", "evidence", "findings",
+        "discovery", "persistedContractMappings", "isolated", "readOnly",
+    )
+    valid = {
+        "id": "contract",
+        "status": "fail",
+        "inputFingerprint": fingerprint,
+        "evidence": ["task.md:1"],
+        "findings": ["bounded architecture finding"],
+        "discovery": {
+            "methods": {
+                name: {"complete": True}
+                for name in ("exactText", "structural", "dependency")
+            }
+        },
+        "persistedContractMappings": [],
+        "isolated": True,
+        "readOnly": True,
+    }
+    calls = []
+
+    def fake_launch(*args, **kwargs):
+        calls.append(args)
+        return {"id": "contract"} if len(calls) == 1 else valid
+
+    monkeypatch.setattr(RUNNER, "launch", fake_launch)
+    result = RUNNER.run_inspector(
+        "contract", {"id": "contract"}, fingerprint, tmp_path / "task.md",
+        tmp_path, {}, fields,
+    )
+    assert result["status"] == "fail"
+    assert len(calls) == 2
+
+    calls.clear()
+    monkeypatch.setattr(
+        RUNNER, "launch",
+        lambda *args, **kwargs: calls.append(args) or valid,
+    )
+    result = RUNNER.run_inspector(
+        "contract", {"id": "contract"}, fingerprint, tmp_path / "task.md",
+        tmp_path, {}, fields,
+    )
+    assert result["status"] == "fail"
+    assert len(calls) == 1

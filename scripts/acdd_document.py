@@ -11,6 +11,7 @@ from acdd_fingerprint import (
     DIGEST_RE,
     FingerprintError,
     SemanticFingerprint,
+    fingerprint_architecture_code_inputs,
     fingerprint_inputs,
     markdown_sections,
     parse_inputs,
@@ -1005,15 +1006,22 @@ def validate_document(
                 if class_sets
                 else None
             )
-        current = fingerprint_inputs(
-            document=document,
-            profile=profile,
-            receipt_contract=receipt_contract,
-            adapters=adapters,
-            workspace_root=workspace_root,
-            include_types=current_inputs,
-            include_classes=current_classes,
-        ).sha256
+        if policy.gate == "architecture/v1":
+            current = fingerprint_architecture_code_inputs(
+                document=document,
+                adapters=adapters,
+                workspace_root=workspace_root,
+            ).sha256
+        else:
+            current = fingerprint_inputs(
+                document=document,
+                profile=profile,
+                receipt_contract=receipt_contract,
+                adapters=adapters,
+                workspace_root=workspace_root,
+                include_types=current_inputs,
+                include_classes=current_classes,
+            ).sha256
         # Recomputing the basis against the working tree answers "must this gate be
         # rerun before closure", which is only a question while the task is in
         # delivery. A terminal receipt would otherwise go stale the moment any

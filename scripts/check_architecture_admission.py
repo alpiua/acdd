@@ -28,8 +28,8 @@ from architecture_governor import (
     may_launch_architecture,
     parse_architecture_admission,
 )
-from acdd_fingerprint import FingerprintError, fingerprint_inputs
-from validate_acdd import ContractError, _adapter_args, _gate_policies, load_core
+from acdd_fingerprint import FingerprintError, fingerprint_architecture_code_inputs
+from validate_acdd import ContractError, _adapter_args
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -61,16 +61,10 @@ def main(argv: list[str] | None = None) -> int:
         if args.fingerprint:
             next_fp = args.fingerprint
         else:
-            core = load_core(profile)
-            policies = {policy.gate: policy for policy in _gate_policies(core)}
-            include = policies["architecture/v1"].invalidation_inputs
-            next_fp = fingerprint_inputs(
+            next_fp = fingerprint_architecture_code_inputs(
                 document=document,
-                profile=profile,
-                receipt_contract=receipt_contract,
                 adapters=adapters,
                 workspace_root=workspace_root,
-                include_types=include,
             ).sha256
         ok, reason = may_launch_architecture(
             text=text,

@@ -21,6 +21,10 @@ inspectorPolicy:
   mayIssueReceipt: false
   mayReturnVerdict: false
   inputFingerprint: shared
+partitionOutput:
+  required: [id, status, inputFingerprint, evidence, findings, discovery, persistedContractMappings, isolated, readOnly]
+  status: [pass, fail]
+  evidence: bounded file-line findings and verified proof mappings
 coordinatorPolicy:
   authoritativeSessions: 1
   requireEveryPartition: true

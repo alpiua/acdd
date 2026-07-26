@@ -706,10 +706,22 @@ def _validate_executor_gate_procedures(
             raise ContractError(f"{label}.{gate_id} must be a non-empty owner procedure")
         operation = procedure.get("operation")
         runtime = procedure.get("runtime")
-        launcher = _validate_launcher_binding(
-            procedure.get("launcher"),
-            f"{label}.{gate_id}.launcher",
-        )
+        has_launcher = "launcher" in procedure
+        has_launchers = "launchers" in procedure
+        if has_launcher and has_launchers:
+            raise ContractError(f"{label}.{gate_id} may declare launcher or launchers, not both")
+        if not has_launcher and not has_launchers:
+            raise ContractError(f"{label}.{gate_id} requires a launcher")
+        if has_launchers:
+            raw_launchers = procedure.get("launchers")
+            if not isinstance(raw_launchers, dict) or set(raw_launchers) != {"inspector", "coordinator"}:
+                raise ContractError(f"{label}.{gate_id}.launchers must contain inspector and coordinator only")
+            launchers = {
+                name: _validate_launcher_binding(raw_launchers[name], f"{label}.{gate_id}.launchers.{name}")
+                for name in ("inspector", "coordinator")
+            }
+        else:
+            launchers = {"legacy": _validate_launcher_binding(procedure.get("launcher"), f"{label}.{gate_id}.launcher")}
         envelope = procedure.get("toolEnvelope")
         if not isinstance(operation, str) or not operation.strip():
             raise ContractError(f"{label}.{gate_id}.operation is required")
@@ -722,67 +734,46 @@ def _validate_executor_gate_procedures(
         if admit & deny:
             raise ContractError(f"{label}.{gate_id}.toolEnvelope overlaps admit and deny")
         if runtime in admit or runtime in deny:
-            raise ContractError(
-                f"{label}.{gate_id}.runtime is provenance, not a tool-envelope name"
-            )
-        launcher_kind = launcher["kind"]
-        launcher_target = launcher["target"]
-        if launcher_kind == "tool" and launcher_target not in admit:
-            raise ContractError(
-                f"{label}.{gate_id}.launcher tool {launcher_target!r} must be admitted"
-            )
-        if launcher_kind == "command" and launcher_target in admit | deny:
-            raise ContractError(
-                f"{label}.{gate_id}.launcher command {launcher_target!r} must not be represented as a child tool"
-            )
+            raise ContractError(f"{label}.{gate_id}.runtime is provenance, not a tool-envelope name")
+        for launcher_name, launcher in launchers.items():
+            launcher_kind, launcher_target = launcher["kind"], launcher["target"]
+            if launcher_kind == "tool" and launcher_target not in admit:
+                raise ContractError(f"{label}.{gate_id}.{launcher_name} tool {launcher_target!r} must be admitted")
+            if launcher_kind == "command" and launcher_target in admit | deny:
+                raise ContractError(f"{label}.{gate_id}.{launcher_name} command {launcher_target!r} must not be represented as a child tool")
         if gate_id == "architecture/v1":
-            if runtime != "pi" or launcher_kind != "command":
-                raise ContractError(
-                    "architecture/v1 must use Pi runtime provenance with a concrete command launcher"
-                )
-            required_tools = {"read", "grep", "find", "ls", "mcp"}
+            if runtime != "pi" or any(item["kind"] != "command" or item["target"] != "pi" for item in launchers.values()):
+                raise ContractError("architecture/v1 must use Pi runtime provenance with concrete Pi command launchers")
+            required_tools = {"mcp"}
             denied_tools = {"bash", "edit", "write", "pi_review_agents"}
             if not required_tools <= admit or not denied_tools <= deny:
-                raise ContractError(
-                    "architecture/v1 must admit read/grep/find/ls/mcp and deny bash/edit/write/pi_review_agents"
-                )
+                raise ContractError("architecture/v1 must admit mcp and deny bash/edit/write/pi_review_agents")
             if core.profile.get("apiVersion") != "acdd/task/v1":
                 continue
             if procedure.get("authoritativeSessions") != 1:
                 raise ContractError("architecture/v1 requires one authoritative session")
             if procedure.get("reviewRoot") != "workspace" or procedure.get("commandCwd") != "implementation-repository":
                 raise ContractError("architecture/v1 must use workspace review root and implementation repository command CWD")
-            _validate_discovery_bindings(
-                procedure.get("discoveryMethods"),
-                f"{label}.{gate_id}.discoveryMethods",
-            )
-            model = procedure.get("model")
-            model_fields = {"provider", "modelId", "reasoning"}
-            if not isinstance(model, dict) or set(model) != model_fields:
-                raise ContractError(
-                    "architecture/v1 model must contain provider, modelId, and reasoning"
-                )
-            for field in model_fields:
-                if not isinstance(model[field], str) or not model[field].strip():
-                    raise ContractError(
-                        f"architecture/v1 model.{field} must be a non-empty string"
-                    )
-            arguments = launcher["arguments"]
-            assert isinstance(arguments, list)
-            for flag, field in (
-                ("--provider", "provider"),
-                ("--model", "modelId"),
-                ("--thinking", "reasoning"),
-            ):
-                positions = [index for index, argument in enumerate(arguments) if argument == flag]
-                if len(positions) != 1 or positions[0] + 1 >= len(arguments):
-                    raise ContractError(
-                        f"architecture/v1 launcher must bind {flag} exactly once"
-                    )
-                if arguments[positions[0] + 1] != model[field]:
-                    raise ContractError(
-                        f"architecture/v1 launcher {flag} must match model.{field}"
-                    )
+            _validate_discovery_bindings(procedure.get("discoveryMethods"), f"{label}.{gate_id}.discoveryMethods")
+            if has_launchers:
+                for name, launcher in launchers.items():
+                    arguments = launcher["arguments"]
+                    assert isinstance(arguments, list)
+                    for flag in ("--provider", "--model", "--thinking"):
+                        positions = [index for index, argument in enumerate(arguments) if argument == flag]
+                        if len(positions) != 1 or positions[0] + 1 >= len(arguments) or not arguments[positions[0] + 1].strip():
+                            raise ContractError(f"architecture/v1 {name} launcher must bind {flag} exactly once")
+            else:
+                model = procedure.get("model")
+                model_fields = {"provider", "modelId", "reasoning"}
+                if not isinstance(model, dict) or set(model) != model_fields or not all(isinstance(model[field], str) and model[field].strip() for field in model_fields):
+                    raise ContractError("architecture/v1 legacy model must contain provider, modelId, and reasoning")
+                arguments = launchers["legacy"]["arguments"]
+                assert isinstance(arguments, list)
+                for flag, field in (("--provider", "provider"), ("--model", "modelId"), ("--thinking", "reasoning")):
+                    positions = [index for index, argument in enumerate(arguments) if argument == flag]
+                    if len(positions) != 1 or positions[0] + 1 >= len(arguments) or arguments[positions[0] + 1] != model[field]:
+                        raise ContractError(f"architecture/v1 launcher {flag} must match model.{field}")
             contract_path = _resolve(
                 owner,
                 procedure.get("contract"),
@@ -799,10 +790,12 @@ def _validate_executor_gate_procedures(
             except ArchitectureVerificationError as exc:
                 raise ContractError(str(exc)) from exc
         elif gate_id == "review/v1":
+            launcher = launchers.get("legacy")
             if (
-                runtime != "pi-review-agents"
-                or launcher_kind != "tool"
-                or launcher_target != "pi_review_agents"
+                launcher is None
+                or runtime != "pi-review-agents"
+                or launcher["kind"] != "tool"
+                or launcher["target"] != "pi_review_agents"
             ):
                 raise ContractError(
                     "review/v1 must bind pi-review-agents provenance to the pi_review_agents tool"

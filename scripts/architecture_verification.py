@@ -147,6 +147,8 @@ def validate_schema(schema: dict[str, Any]) -> dict[str, Any]:
         "findings",
         "discovery",
         "persistedContractMappings",
+        "isolated",
+        "readOnly",
     }:
         raise ArchitectureVerificationError(
             "schema.partitionRequiredFields must define the typed partition output"
@@ -208,6 +210,18 @@ def validate_contract(
         raise ArchitectureVerificationError("contract inspectorPolicy must preserve the schema")
     if contract.get("coordinatorPolicy") != schema.get("coordinatorPolicy"):
         raise ArchitectureVerificationError("contract coordinatorPolicy must preserve the schema")
+    partition_output = _mapping(contract.get("partitionOutput"), "contract.partitionOutput")
+    contract_required = set(
+        _strings(partition_output.get("required"), "contract.partitionOutput.required")
+    )
+    if contract_required != set(schema["partitionRequiredFields"]):
+        raise ArchitectureVerificationError(
+            "contract partition output must preserve the schema"
+        )
+    if set(_strings(partition_output.get("status"), "contract.partitionOutput.status")) != {"pass", "fail"}:
+        raise ArchitectureVerificationError(
+            "contract partition status must be pass or fail"
+        )
     receipt = _mapping(contract.get("receiptValidation"), "contract.receiptValidation")
     required = set(
         _strings(receipt.get("requiredCapabilities"), "contract.receiptValidation.requiredCapabilities")

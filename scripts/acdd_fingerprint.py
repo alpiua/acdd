@@ -403,6 +403,69 @@ def fingerprint_inputs(
     )
 
 
+ARCHITECTURE_CODE_ROOTS = frozenset({"services", "packages", "core", "extensions"})
+
+
+def _implementation_root(adapters: tuple[Path, ...], workspace_root: Path) -> Path:
+    roots: list[Path] = []
+    for adapter_path in adapters:
+        try:
+            value: object = yaml.safe_load(adapter_path.read_text(encoding="utf-8"))
+        except (OSError, yaml.YAMLError) as exc:
+            raise FingerprintError(f"cannot load adapter {adapter_path}: {exc}") from exc
+        adapter = _mapping(value, str(adapter_path))
+        if adapter.get("role") != "implementation":
+            continue
+        root = adapter_path.resolve().parent.parent
+        if not root.is_relative_to(workspace_root.resolve()) or not root.is_dir():
+            raise FingerprintError(
+                f"implementation adapter root is missing or outside workspace: {root}"
+            )
+        roots.append(root)
+    if len(roots) != 1:
+        raise FingerprintError("architecture fingerprint requires exactly one implementation adapter")
+    return roots[0]
+
+
+def fingerprint_architecture_code_inputs(
+    *,
+    document: Path,
+    adapters: tuple[Path, ...],
+    workspace_root: Path,
+) -> FingerprintResult:
+    """Hash the declared architecture code map once, excluding workflow/runtime state."""
+    root = workspace_root.resolve()
+    document_path = document.resolve()
+    if not document_path.is_relative_to(root) or not document_path.is_file():
+        raise FingerprintError("bound document is missing or escapes workspace root")
+    authorities = _adapter_authorities(adapters, root)
+    implementation_root = _implementation_root(adapters, root)
+    entries: list[SnapshotEntry] = []
+    for item in parse_inputs(document_path.read_text(encoding="utf-8")):
+        unresolved = root / item.path
+        try:
+            relative = unresolved.resolve().relative_to(implementation_root)
+        except ValueError:
+            continue
+        if not relative.parts or relative.parts[0] not in ARCHITECTURE_CODE_ROOTS:
+            continue
+        path = _resolve_declared(item, root, authorities)
+        entries.append(SnapshotEntry(item.type, item.path, _sha256(path.read_bytes())))
+    if not entries:
+        allowed = ", ".join(sorted(ARCHITECTURE_CODE_ROOTS))
+        raise FingerprintError(
+            f"architecture code map has no declared files under allowed roots: {allowed}"
+        )
+    canonical_entries = [
+        {"path": entry.path, "sha256": entry.sha256}
+        for entry in sorted(entries, key=lambda item: item.path)
+    ]
+    return FingerprintResult(
+        sha256=_sha256(_canonical(canonical_entries)),
+        diagnostics=(),
+    )
+
+
 def semantic_task_fingerprint(text: str) -> SemanticFingerprint:
     sections = markdown_sections(text)
     missing = [name for name in TASK_REQUIRED_SECTIONS if name not in sections]

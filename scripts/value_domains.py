@@ -59,7 +59,9 @@ TEXT_SUFFIXES = {
 }
 SKIP_DIR_NAMES = {
     ".git",
+    ".pi",
     ".mypy_cache",
+    ".pi-subagents",
     ".pytest_cache",
     ".ruff_cache",
     ".tox",
@@ -70,6 +72,7 @@ SKIP_DIR_NAMES = {
     "node_modules",
     "vendor",
 }
+CODE_ROOT_NAMES = frozenset({"services", "packages", "extensions", "tests"})
 MAX_DISCOVERY_FILES = 20_000
 MAX_DISCOVERY_MATCHES = 256
 MAX_FILE_BYTES = 2 * 1024 * 1024
@@ -177,30 +180,40 @@ def _discover(
     encoded_terms = tuple(term.encode("utf-8") for term in terms)
     for root_name in roots:
         root = _relative_root(workspace, root_name, f"{label}.roots")
-        for path in sorted(root.rglob("*")):
-            relative_to_root = path.relative_to(root)
-            if any(part in SKIP_DIR_NAMES for part in relative_to_root.parts):
-                continue
-            if (
-                path in inspected_paths
-                or not path.is_file()
-                or path.suffix.lower() not in TEXT_SUFFIXES
-            ):
-                continue
-            inspected_paths.add(path)
-            if len(inspected_paths) > MAX_DISCOVERY_FILES:
-                raise ValueDomainError(
-                    f"{label}: discovery exceeds {MAX_DISCOVERY_FILES} bounded text files; refine roots"
-                )
-            if path.stat().st_size > MAX_FILE_BYTES:
-                continue
-            data = path.read_bytes()
-            if any(term in data for term in encoded_terms):
-                found.add(path.relative_to(workspace).as_posix())
-                if len(found) > MAX_DISCOVERY_MATCHES:
+        scan_roots = (
+            (root,)
+            if root.name in CODE_ROOT_NAMES
+            else tuple(
+                root / name
+                for name in sorted(CODE_ROOT_NAMES)
+                if (root / name).is_dir()
+            )
+        )
+        for scan_root in scan_roots:
+            for path in sorted(scan_root.rglob("*")):
+                relative_to_workspace = path.relative_to(workspace)
+                if any(part in SKIP_DIR_NAMES for part in relative_to_workspace.parts):
+                    continue
+                if (
+                    path in inspected_paths
+                    or not path.is_file()
+                    or path.suffix.lower() not in TEXT_SUFFIXES
+                ):
+                    continue
+                inspected_paths.add(path)
+                if len(inspected_paths) > MAX_DISCOVERY_FILES:
                     raise ValueDomainError(
-                        f"{label}: discovery exceeds {MAX_DISCOVERY_MATCHES} matching files; use more precise terms or roots"
+                        f"{label}: discovery exceeds {MAX_DISCOVERY_FILES} bounded text files; refine roots"
                     )
+                if path.stat().st_size > MAX_FILE_BYTES:
+                    continue
+                data = path.read_bytes()
+                if any(term in data for term in encoded_terms):
+                    found.add(path.relative_to(workspace).as_posix())
+                    if len(found) > MAX_DISCOVERY_MATCHES:
+                        raise ValueDomainError(
+                            f"{label}: discovery exceeds {MAX_DISCOVERY_MATCHES} matching files; use more precise terms or roots"
+                        )
     return found
 
 

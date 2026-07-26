@@ -173,6 +173,85 @@ def test_in_memory_fingerprint_is_stable_and_writes_nothing(tmp_path: Path) -> N
     ]
 
 
+def test_architecture_fingerprint_hashes_only_declared_allowed_code_roots(
+    tmp_path: Path,
+) -> None:
+    code_paths = [
+        "contextunity/services/service.py",
+        "contextunity/packages/package.py",
+        "contextunity/core/core.py",
+        "contextunity/extensions/extension.py",
+    ]
+    ignored_paths = [
+        "contextunity/docs/keyword-hit.md",
+        "contextunity/.pi-subagents/artifacts/reviewer.md",
+        "plugins/acdd-workflow/scripts/run_architecture.py",
+    ]
+    for relative in (*code_paths, *ignored_paths):
+        path = tmp_path / relative
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(relative, encoding="utf-8")
+    document = tmp_path / "planner" / "task.md"
+    document.parent.mkdir(parents=True)
+    document.write_text(
+        _task_text(
+            [("source", path) for path in (*code_paths, *ignored_paths[:2])]
+            + [("environment", ignored_paths[2])]
+        ),
+        encoding="utf-8",
+    )
+    task_adapter = tmp_path / "planner" / ".acdd" / "task-adapter.yaml"
+    task_adapter.parent.mkdir()
+    task_adapter.write_text(
+        """role: task
+inputAuthorities:
+  bound-document: [planner/**]
+  environment: [plugins/**]
+""",
+        encoding="utf-8",
+    )
+    implementation_adapter = (
+        tmp_path / "contextunity" / ".acdd" / "implementation-adapter.yaml"
+    )
+    implementation_adapter.parent.mkdir()
+    implementation_adapter.write_text(
+        """role: implementation
+inputAuthorities:
+  source: [contextunity/**]
+""",
+        encoding="utf-8",
+    )
+    adapters = (task_adapter, implementation_adapter)
+    declared = {item.path for item in FP.parse_inputs(document.read_text(encoding="utf-8"))}
+    assert declared == set(code_paths + ignored_paths)
+
+    def fingerprint() -> str:
+        return FP.fingerprint_architecture_code_inputs(
+            document=document,
+            adapters=adapters,
+            workspace_root=tmp_path,
+        ).sha256
+
+    baseline = fingerprint()
+    for relative in ignored_paths:
+        path = tmp_path / relative
+        original = path.read_text(encoding="utf-8")
+        path.write_text(original + " changed", encoding="utf-8")
+        assert fingerprint() == baseline
+        path.write_text(original, encoding="utf-8")
+    document.write_text(
+        document.read_text(encoding="utf-8").replace("title: fixture", "title: changed"),
+        encoding="utf-8",
+    )
+    assert fingerprint() == baseline
+    for relative in code_paths:
+        path = tmp_path / relative
+        original = path.read_text(encoding="utf-8")
+        path.write_text(original + " changed", encoding="utf-8")
+        assert fingerprint() != baseline
+        path.write_text(original, encoding="utf-8")
+
+
 def test_duplicate_escape_missing_and_authority_fail_closed(tmp_path: Path) -> None:
     document, adapters = _fixture(tmp_path)
     text = document.read_text(encoding="utf-8")
@@ -356,8 +435,8 @@ def _value_domain_text(
         "public_type.py": "public-type",
         "proof.py": "proof",
     }
-    domain_root = tmp_path / "domain"
-    domain_root.mkdir()
+    domain_root = tmp_path / "services" / "domain"
+    domain_root.mkdir(parents=True)
     for name in roles:
         (domain_root / name).write_text(
             f"visibility = {name!r}\n",
@@ -369,10 +448,10 @@ def _value_domain_text(
         "visibility = 'generated dependency'\n",
         encoding="utf-8",
     )
-    paths = [("source", f"domain/{name}") for name in roles]
+    paths = [("source", f"services/domain/{name}") for name in roles]
     text = _task_text(paths)
     files = "\n".join(
-        f"      - path: domain/{name}\n        roles: [{role}]"
+        f"      - path: services/domain/{name}\n        roles: [{role}]"
         for name, role in roles.items()
         if include_reader_disposition or name != "reader.py"
     )
@@ -390,13 +469,13 @@ domains:
     beforeContract: {before_contract}
     afterContract: {after_contract}
     discovery:
-      roots: [domain]
+      roots: [services]
       terms: [visibility]
       files:
 {files}
     compatibility:
       strategy: {strategy}
-      compatibilityPaths: [domain/migration.sql]
+      compatibilityPaths: [services/domain/migration.sql]
       proofIds: [proof.red-one]
     proofIds: [proof.red-one]
 ```
@@ -434,6 +513,27 @@ def test_persisted_contract_discovery_rejects_an_omitted_candidate(
         )
 
 
+def test_persisted_contract_discovery_uses_code_roots_and_ignores_pi_runtime_artifacts(
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "contextunity" / "services" / "owner.py"
+    source.parent.mkdir(parents=True)
+    source.write_text("upsert_graph\n", encoding="utf-8")
+    docs = tmp_path / "contextunity" / "docs" / "reference.md"
+    docs.parent.mkdir(parents=True)
+    docs.write_text("upsert_graph\n", encoding="utf-8")
+    artifact = tmp_path / "contextunity" / ".pi-subagents" / "artifacts" / "reviewer.md"
+    artifact.parent.mkdir(parents=True)
+    artifact.write_text("upsert_graph\n", encoding="utf-8")
+
+    assert VALUE_DOMAINS._discover(
+        tmp_path,
+        roots=["contextunity"],
+        terms=["upsert_graph"],
+        label="test.discovery",
+    ) == {"contextunity/services/owner.py"}
+
+
 def test_non_enum_contract_restriction_cannot_pass_without_compatibility_strategy(
     tmp_path: Path,
 ) -> None:
@@ -461,6 +561,18 @@ def _architecture_document(
     tmp_path: Path, *, review_overrides: dict[str, str] | None = None
 ) -> tuple[Path, tuple[Path, ...]]:
     document, adapters = _fixture(tmp_path)
+    implementation_dir = tmp_path / ".acdd"
+    implementation_dir.mkdir()
+    implementation = implementation_dir / "implementation-adapter.yaml"
+    implementation.write_text(adapters[1].read_text(encoding="utf-8"), encoding="utf-8")
+    source = tmp_path / "services" / "source.py"
+    source.parent.mkdir()
+    source.write_text((tmp_path / "source.py").read_text(encoding="utf-8"), encoding="utf-8")
+    document.write_text(
+        document.read_text(encoding="utf-8").replace("path: source.py", "path: services/source.py", 1),
+        encoding="utf-8",
+    )
+    adapters = (adapters[0], implementation)
     core = VALIDATOR.load_core(ROOT / "profiles" / "task" / "v1.yaml")
     policies = {policy.gate: policy for policy in VALIDATOR._gate_policies(core)}
     matrix_fp = FP.fingerprint_inputs(
@@ -471,13 +583,10 @@ def _architecture_document(
         workspace_root=tmp_path,
         include_types=policies["matrix/v1"].invalidation_inputs,
     ).sha256
-    architecture_fp = FP.fingerprint_inputs(
+    architecture_fp = FP.fingerprint_architecture_code_inputs(
         document=document,
-        profile=core.profile_path,
-        receipt_contract=core.receipt_contract_path,
         adapters=adapters,
         workspace_root=tmp_path,
-        include_types=policies["architecture/v1"].invalidation_inputs,
     ).sha256
     fields = {
         "independent": "true",
@@ -563,6 +672,8 @@ verification:
             queries: [reverse dependencies and cross-service paths]
             complete: true
       persistedContractMappings: []
+      isolated: true
+      readOnly: true
     - id: authority
       status: pass
       inputFingerprint: {architecture_fp}
@@ -570,6 +681,8 @@ verification:
       findings: []
       discovery: *repository_discovery
       persistedContractMappings: []
+      isolated: true
+      readOnly: true
     - id: callers
       status: pass
       inputFingerprint: {architecture_fp}
@@ -577,6 +690,8 @@ verification:
       findings: []
       discovery: *repository_discovery
       persistedContractMappings: []
+      isolated: true
+      readOnly: true
     - id: persistence
       status: pass
       inputFingerprint: {architecture_fp}
@@ -584,6 +699,8 @@ verification:
       findings: []
       discovery: *repository_discovery
       persistedContractMappings: []
+      isolated: true
+      readOnly: true
   coordinator:
     sessionUuid: 019f8f5f-003b-7374-bcbf-00ff511958b0
     verdict: PASS

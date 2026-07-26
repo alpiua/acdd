@@ -69,6 +69,8 @@ def _verification_result(*, runtime: str = "pi") -> dict[str, object]:
                 "findings": [],
                 "discovery": _discovery_receipt(),
                 "persistedContractMappings": [],
+                "isolated": True,
+                "readOnly": True,
             }
             for partition in ("contract", "authority", "callers", "persistence")
         ],
@@ -171,6 +173,28 @@ def test_architecture_model_is_adapter_selected_and_launcher_bound() -> None:
             adapter_path,
             ROOT,
             "adapter.gateProcedures",
+        )
+
+
+def test_split_architecture_launchers_are_validated_and_legacy_remains_supported() -> None:
+    core = MODULE.load_core(ROOT / "profiles" / "task" / "v1.yaml")
+    adapter_path = ROOT / "examples" / "planner" / ".acdd" / "task-adapter.yaml"
+    adapter = MODULE.load_adapter(adapter_path, "task", core, allowed_root=ROOT)
+    procedures = copy.deepcopy(adapter["gateProcedures"])
+    architecture = procedures["architecture/v1"]
+    legacy = architecture.pop("launcher")
+    architecture.pop("model")
+    architecture["launchers"] = {
+        "inspector": copy.deepcopy(legacy),
+        "coordinator": copy.deepcopy(legacy),
+    }
+    MODULE._validate_executor_gate_procedures(
+        procedures, core, "task", adapter_path, ROOT, "adapter.gateProcedures"
+    )
+    architecture["launcher"] = copy.deepcopy(legacy)
+    with pytest.raises(MODULE.ContractError, match="launcher or launchers"):
+        MODULE._validate_executor_gate_procedures(
+            procedures, core, "task", adapter_path, ROOT, "adapter.gateProcedures"
         )
 
 

@@ -16,6 +16,6 @@ coordinatorPolicy:
   requireFindingReconciliation: true
   requirePersistedContractReconciliation: true
   verdictOwner: coordinator
-partitionRequiredFields: [id, status, inputFingerprint, evidence, findings, discovery, persistedContractMappings]
+partitionRequiredFields: [id, status, inputFingerprint, evidence, findings, discovery, persistedContractMappings, isolated, readOnly]
 partitionForbiddenFields: [receipt, verdict]
 resultRequiredFields: [inputFingerprint, runtime, capabilities, isolated, readOnly, authoritativeSessionUuids, persistedContractIds, partitions, coordinator]
