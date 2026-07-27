@@ -73,14 +73,21 @@ changes. It records:
 - decision IDs and proof IDs;
 - explicit out-of-scope boundaries and blockers.
 
-An independent architecture verification then checks the contract against live
-source and dependencies. The runner binds one candidate from the semantic task
-contract plus one snapshot of declared implementation inputs under the allowed
+New tasks freeze this authority explicitly under
+`## G0 architecture baseline`. An independent architecture verification then
+checks that section against live source and dependencies. The runner binds one
+candidate from the G0 baseline plus one snapshot of declared implementation inputs under the allowed
 `services/`, `packages/`, `core/`, and `extensions/` roots. G0 passes only when
 all four read-only partitions terminate and validate, every finding is either
 reconciled into one architectural remediation batch or explicitly resolved by
 the coordinator against the frozen task authority, every impact axis is mapped,
 and the coordinator returns `PASS` for the current fingerprint.
+
+Existing active tasks keep their already-approved legacy semantic-section layout as
+the frozen G0 baseline until terminal completion. Do not copy that authority into a
+new heading merely to adopt this document shape: the copy would be a new semantic
+candidate. A G1 amendment binds directly to the task's recorded G0 semantic
+fingerprint and reviews the legacy baseline plus that amendment.
 
 The code is a read-only feasibility and impact baseline during G0; unfinished
 legacy implementation is not itself a failure. A partition `FAIL` must identify
@@ -97,6 +104,22 @@ change. Re-running an unchanged failed fingerprint is forbidden. Before each arc
 **Internal gates:** `red/v1`, `runtime/v1`, `parity/v1`.
 
 G1 proves that the bounded contract is implemented:
+
+If implementation discovery requires an architectural decision absent from G0,
+append it under `## G1 redesign amendments` instead of rewriting the baseline.
+Each amendment binds its own fingerprint and gate-scoped code coverage to
+frozen G0 and receives a supplemental four-partition architecture review.
+G0 and every amendment use separate external coverage manifests; an amendment
+selects only its declared code paths through `implementationPaths`. Pending amendments block
+terminal G1 and later receipts; passed amendments do not invalidate or replace
+the original G0 receipts. The task stores amendment authority and a stable
+receipt pointer only; attempts, findings, normalized usage, verification, and
+the bounded transcript digest live in the adapter-owned external receipt.
+Supplemental admission validates the selected pending amendment, its frozen-G0
+binding, and historical receipt/evidence integrity. It does not require existing
+receipt fingerprints or historical migration records to match the current working
+tree; normal delivery validation and terminal closure continue to require that
+freshness.
 
 1. preserve the smallest expected failing proof of the declared gap;
 2. implement only the G0-approved contract;
@@ -156,9 +179,9 @@ coordinator alone returns `PASS` or `FAIL`. A schema or transport failure is
 
 Each launcher may emit structured usage in its own transport shape. The runner
 normalizes supported usage into bounded per-launch and aggregate input, output,
-cache-read, cache-write, total-token, and cost fields. Full transcripts and
-temporary partition files remain runtime data and are never copied into task
-Markdown.
+cache-read, cache-write, total-token, and cost fields. G1 keeps one bounded,
+secret-redacted JSONL transcript outside task Markdown and binds its SHA-256 from
+the external amendment receipt. Temporary partition files remain runtime data.
 
 Terminal implementation or plan review is a separate subagent operation chosen
 by the owner adapter. It runs after the relevant evidence stabilizes. The
@@ -240,8 +263,10 @@ actual layout:
 - Complete G0 before implementation; preserve RED evidence in G1; run final
   security in G2; close only through release, independent review, and handoff
   in G3.
-- Keep typed inputs, evidence, fingerprints, receipts, and blockers inline in
-  the bound task or primary plan. Never manufacture a receipt.
+- Keep typed inputs, ordinary evidence, fingerprints, receipts, and blockers
+  inline in the bound task or primary plan. G1 amendment attempts and launcher
+  telemetry live only in the adapter-owned receipt and transcript. Never
+  manufacture a receipt.
 ```
 
 Use [`Install.md`](Install.md) when creating, installing, validating, or running
@@ -399,10 +424,9 @@ Task architecture adapters also bind concrete discovery methods for
 command CWD, model, scope, session-count restriction, and split inspector/
 coordinator launchers. The legacy singular `launcher` remains valid for
 procedures that do not need split orchestration; a procedure must not declare
-both forms. The Planner adapter currently binds these architecture launchers to
-Pi command processes; that is an owner-adapter choice enforced by its validator,
-not a generic ACDD runtime field. A different host requires an explicit adapter
-and executor binding before it is valid.
+both forms. The generic validator requires concrete command launchers but does
+not prescribe their host. Concrete hosts, transports, model routing, and
+executor bindings belong exclusively to the owning adapter.
 
 ### Input authority and write policy
 

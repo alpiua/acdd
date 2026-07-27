@@ -271,6 +271,57 @@ def test_runner_rejects_json_without_required_fields() -> None:
         RUNNER.parse_launcher_output('{"message": "not a partition"}', ("id", "status"))
 
 
+@pytest.mark.parametrize(
+    ("output", "expected"),
+    [
+        (
+            "\n".join([
+                RUNNER.json.dumps({
+                    "type": "message_end",
+                    "message": {
+                        "role": "assistant",
+                        "content": [],
+                        "stopReason": "error",
+                        "errorMessage": "fetch failed",
+                    },
+                }),
+                RUNNER.json.dumps({
+                    "type": "auto_retry_end",
+                    "success": False,
+                    "finalError": "fetch failed",
+                }),
+            ]),
+            "launcher transport failure: fetch failed",
+        ),
+        (
+            RUNNER.json.dumps({"error": {"message": "provider unavailable"}}),
+            "launcher transport failure: provider unavailable",
+        ),
+    ],
+)
+def test_runner_surfaces_adapter_transport_errors(output: str, expected: str) -> None:
+    with pytest.raises(RUNNER.RunnerError, match=expected):
+        RUNNER.parse_launcher_output(output, ("id", "status"))
+
+
+def test_runner_resolves_declared_launcher_paths_relative_to_adapter(tmp_path: Path) -> None:
+    adapter = tmp_path / ".acdd" / "task-adapter.yaml"
+    script = adapter.parent / "scripts" / "bridge.py"
+    script.parent.mkdir(parents=True)
+    script.write_text("pass\n", encoding="utf-8")
+    binding = {
+        "kind": "command",
+        "target": "python3",
+        "arguments": ["scripts/bridge.py", "--model", "terra"],
+        "promptTransport": "final-argument",
+    }
+
+    resolved = RUNNER.resolve_launcher_paths(binding, adapter)
+
+    assert resolved["arguments"][0] == str(script.resolve())
+    assert resolved["arguments"][1:] == ["--model", "terra"]
+    assert binding["arguments"][0] == "scripts/bridge.py"
+
 def test_runner_aggregates_pi_jsonl_usage() -> None:
     output = "\n".join([
         RUNNER.json.dumps({
@@ -384,9 +435,20 @@ def test_runner_retries_only_transport_or_schema_failure(
     retry_prompt = RUNNER.json.loads(calls[1][1])
     assert "candidate-gap" in retry_prompt["priorAttemptFailure"]["responseExcerpt"]
     assert retry_prompt["discoveryContract"]["methods"] == {
-        name: {"capability": capability}
+        name: {
+            "capability": capability,
+            "tools": ["successful tool name"],
+            "queries": ["successful bounded query"],
+            "complete": True,
+        }
         for name, capability in RUNNER.DISCOVERY_CAPABILITIES.items()
     }
+    assert retry_prompt["outputContract"]["id"] == "contract"
+    assert retry_prompt["outputContract"]["evidence"] == ["path:line"]
+    assert "contextReceipt" not in retry_prompt["outputContract"]
+    assert retry_prompt["contextReceiptContract"] is None
+    assert "repositoryPath exactly" not in retry_prompt["toolPolicy"]["coverage"]
+    assert "Record only successful tool calls" in retry_prompt["toolPolicy"]["discoveryReceipts"]
     assert retry_prompt["persistedContractContract"] == {
         "allowedDomainIds": sorted(domains),
         "coverage": "complete",
@@ -408,6 +470,210 @@ def test_runner_retries_only_transport_or_schema_failure(
     assert result["status"] == "fail"
     assert len(calls) == 1
 
+    calls.clear()
+    review_context = {
+        "sha256": "sha256:" + "d" * 64,
+        "sources": [{"path": "authority/task.md"}],
+        "retrievalHints": {"queries": ["design-topic"]},
+        "consumptionContract": {
+            "requiredSources": ["authority/task.md"],
+            "requiredRetrievals": ["knowledge:design-topic"],
+        },
+        "toolPolicy": {"dependency": "adapter-owned dependency policy"},
+        "pathContract": {
+            "workspaceRoot": str(tmp_path),
+            "workspacePathField": "path",
+            "implementationRepositoryRoot": str(tmp_path / "implementation"),
+            "implementationRepositoryPathField": "repositoryPath",
+        },
+        "coverageFiles": [
+            {
+                "path": "implementation/services/example.py",
+                "repositoryPath": "services/example.py",
+            }
+        ],
+    }
+    with_context = {
+        **valid,
+        "status": "pass",
+        "findings": [],
+        "contextReceipt": {
+            "manifestSha256": review_context["sha256"],
+            "sourcesRead": ["authority/task.md"],
+            "retrievals": ["knowledge:design-topic"],
+        },
+    }
+    monkeypatch.setattr(
+        RUNNER,
+        "launch",
+        lambda *args, **kwargs: calls.append(args) or with_context,
+    )
+    RUNNER.run_inspector(
+        "contract", {"id": "contract"}, fingerprint, tmp_path / "task.md",
+        tmp_path, {}, SCHEMA, domains, review_context=review_context,
+    )
+    context_prompt = RUNNER.json.loads(calls[0][1])
+    assert context_prompt["outputContract"]["contextReceipt"] == {
+        "manifestSha256": review_context["sha256"],
+        "sourcesRead": ["authority/task.md"],
+        "retrievals": ["knowledge:design-topic"],
+    }
+    assert "repositoryPath exactly" in context_prompt["toolPolicy"]["coverage"]
+    assert context_prompt["toolPolicy"]["dependency"] == "adapter-owned dependency policy"
+
+
+def test_runner_binds_launcher_paths_and_command_cwd(tmp_path: Path) -> None:
+    task_adapter = tmp_path / "planner/.acdd/task-adapter.yaml"
+    implementation_adapter = tmp_path / "contextunity/.acdd/implementation-adapter.yaml"
+    task_adapter.parent.mkdir(parents=True)
+    implementation_adapter.parent.mkdir(parents=True)
+    (implementation_adapter.parent.parent / "services").mkdir()
+    (tmp_path / "planner/.acdd/scripts").mkdir()
+    launcher_script = tmp_path / "planner/.acdd/scripts/bridge.py"
+    launcher_script.write_text("# bridge\n", encoding="utf-8")
+
+    assert RUNNER.resolve_command_cwd(
+        {"commandCwd": "implementation-repository"},
+        workspace_root=tmp_path,
+        task_adapter=task_adapter,
+        implementation_adapter=implementation_adapter,
+    ) == implementation_adapter.parent.parent.resolve()
+    resolved = RUNNER.resolve_launcher_paths(
+        {
+            "target": "scripts/bridge.py",
+            "arguments": ["scripts/bridge.py", "--session", "{sessionUuid}"],
+        },
+        task_adapter,
+    )
+    assert resolved["target"] == launcher_script.resolve().as_posix()
+    assert resolved["arguments"][0] == launcher_script.resolve().as_posix()
+    with pytest.raises(RUNNER.RunnerError, match="does not exist"):
+        RUNNER.resolve_launcher_paths({"arguments": ["scripts/missing.py"]}, task_adapter)
+
+
+def test_runner_records_timeout_as_transport_failure(monkeypatch: pytest.MonkeyPatch) -> None:
+    def timeout(*args: object, **kwargs: object) -> object:
+        raise subprocess.TimeoutExpired(args[0], 1, output="partial", stderr="network")
+
+    monkeypatch.setattr(RUNNER.subprocess, "run", timeout)
+    usage: list[dict[str, object]] = []
+    transcript: list[dict[str, object]] = []
+    with pytest.raises(RUNNER.RunnerError, match="timed out"):
+        RUNNER.launch(
+            {
+                "kind": "command",
+                "target": "bridge",
+                "arguments": [],
+                "promptTransport": "final-argument",
+            },
+            "{}",
+            "session",
+            Path("."),
+            usage_sink=usage,
+            transcript_sink=transcript.append,
+        )
+    assert usage[0]["available"] is False
+    assert transcript[0]["returnCode"] is None
+
+
+def test_inspector_must_acknowledge_required_context_consumption() -> None:
+    fingerprint = "sha256:" + "d" * 64
+    context_sha = "sha256:" + "e" * 64
+    review_context = {
+        "sha256": context_sha,
+        "sources": [
+            {"path": "authority/task.md"},
+            {"path": "authority/phase.md"},
+        ],
+        "retrievalHints": {
+            "queries": ["design-topic", "related-plan"],
+        },
+        "consumptionContract": {
+            "requiredSources": [
+                "authority/task.md",
+                "authority/phase.md",
+            ],
+            "requiredRetrievals": [
+                "knowledge:design-topic",
+                "search:related-plan",
+            ],
+        },
+    }
+    partition = {
+        "id": "contract",
+        "status": "pass",
+        "inputFingerprint": fingerprint,
+        "evidence": ["task.md:1"],
+        "findings": [],
+        "discovery": _discovery(),
+        "persistedContractMappings": [],
+        "isolated": True,
+        "readOnly": True,
+        "contextReceipt": {
+            "manifestSha256": context_sha,
+            "sourcesRead": [
+                "authority/task.md",
+                "authority/phase.md",
+            ],
+            "retrievals": [
+                "knowledge:design-topic",
+                "search:related-plan",
+            ],
+        },
+    }
+    RUNNER.check_partition(
+        partition,
+        "contract",
+        fingerprint,
+        SCHEMA,
+        expected_document=Path("task.md"),
+        review_context=review_context,
+    )
+    incomplete = {
+        **partition,
+        "contextReceipt": {
+            **partition["contextReceipt"],
+            "retrievals": ["knowledge:design-topic"],
+        },
+    }
+    with pytest.raises(RUNNER.RunnerError, match="misses required retrievals"):
+        RUNNER.check_partition(
+            incomplete,
+            "contract",
+            fingerprint,
+            SCHEMA,
+            expected_document=Path("task.md"),
+            review_context=review_context,
+        )
+
+
+def test_runner_rejects_code_evidence_outside_frozen_coverage() -> None:
+    fingerprint = "sha256:" + "d" * 64
+    partition = {
+        "id": "contract",
+        "status": "fail",
+        "inputFingerprint": fingerprint,
+        "evidence": ["task.md:1"],
+        "findings": [_candidate_finding(code_path="services/not-covered.py")],
+        "discovery": _discovery(),
+        "persistedContractMappings": [],
+        "isolated": True,
+        "readOnly": True,
+    }
+    with pytest.raises(RUNNER.RunnerError, match="bound coverage"):
+        RUNNER.check_partition(
+            partition,
+            "contract",
+            fingerprint,
+            SCHEMA,
+            expected_document=Path("task.md"),
+            review_context={
+                "pathContract": {"workspaceRoot": "."},
+                "coverageFiles": [{"path": "services/covered.py"}],
+                "consumptionContract": {"requiredSources": [], "requiredRetrievals": []},
+            },
+        )
+
 
 
 def test_runner_records_coordinator_recommendation_instead_of_raw_inspector_advice() -> None:
@@ -422,6 +688,8 @@ def test_runner_records_coordinator_recommendation_instead_of_raw_inspector_advi
         "prohibitedShortcuts": ["caller-local fallback"],
         "acceptanceProof": ["owner test", "backend parity test"],
         "evidence": ["packages/core/value.py:10"],
+        "userDecisionRequired": False,
+        "decisionOptions": [],
     }
     findings = RUNNER.task_findings_from_recommendations([recommendation])
     assert findings == [{
@@ -436,6 +704,8 @@ def test_runner_records_coordinator_recommendation_instead_of_raw_inspector_advi
         "acceptanceProof": recommendation["acceptanceProof"],
         "sourceFindings": recommendation["sourceFindings"],
         "evidence": recommendation["evidence"],
+        "userDecisionRequired": False,
+        "decisionOptions": [],
     }]
 
 
@@ -469,6 +739,8 @@ def _coordinator_recommendation() -> dict[str, object]:
         "prohibitedShortcuts": ["caller fallback"],
         "acceptanceProof": ["caller parity test"],
         "evidence": ["services/callers.py:1"],
+        "userDecisionRequired": False,
+        "decisionOptions": [],
     }
 
 
@@ -490,6 +762,9 @@ def test_coordinator_schema_retry_preserves_findings_without_rerunning_inspector
     assert "propagation" in retry_prompt["priorAttemptFailure"]["validationError"]
     assert retry_prompt["sourceFindings"][0]["finding"]["id"] == "candidate-gap"
     assert retry_prompt["outputContract"]["recommendationShape"]["propagation"] == ["caller -> canonical owner", "transport/storage/backend propagation"]
+    assert retry_prompt["outputContract"]["recommendationShape"][
+        "userDecisionRequired"
+    ] is False
 
 
 def test_coordinator_resolves_legacy_code_finding_against_frozen_task(

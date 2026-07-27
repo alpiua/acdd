@@ -222,6 +222,8 @@ publication only.
 An independent gate procedure must bind a real launcher:
 
 ```yaml
+scripts:
+  architectureArtifacts: scripts/architecture_artifacts.py
 gateProcedures:
   architecture/v1:
     operation: architecture-verify
@@ -242,6 +244,11 @@ gateProcedures:
       deny: [bash, edit, write]
 ```
 
+`architectureArtifacts` is an adapter-owned executable backend with
+`context`, `prepare`, `launch`, `terminal`, and `validate` operations. The plugin supplies
+typed lifecycle events; the adapter chooses storage paths, retention, redaction,
+serialization, and Git-ignore policy.
+
 Rules:
 
 - Treat `runtime` as provenance only. Never search for or invoke it as a tool.
@@ -260,6 +267,11 @@ Rules:
   partition outputs.
 - A procedure may declare the legacy singular `launcher` or split `launchers`,
   never both. Paths resolve from the owning adapter.
+- A task adapter that permits G1 amendments must declare both artifact roots.
+  Keep exactly one YAML receipt and one paired JSONL transcript per amendment.
+  The transcript is secret-redacted and capped at 32 KiB per stream and 2 MiB
+  total; the receipt stores its path and SHA-256. Never serialize raw launcher
+  output into Markdown or YAML.
 
 For task `architecture/v1`, bind:
 
@@ -377,7 +389,8 @@ Add only a concise route at the owner boundary. Recommended text:
 - Planning → `../plugins/acdd-workflow/profiles/plan/v1.yaml` with
   `.acdd/plan-adapter.yaml`.
 - Complete G0 before implementation, G1 runtime/parity, G2 final security, and
-  G3 release/review/handoff. Keep evidence and receipts inline.
+  G3 release/review/handoff. Keep ordinary evidence and receipts inline; keep
+  G1 amendment attempts in the adapter-owned receipt and redacted transcript.
 - Adapter creation, validation, and subagent rules:
   `../plugins/acdd-workflow/Install.md`.
 ```

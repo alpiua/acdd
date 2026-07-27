@@ -241,6 +241,25 @@ inputAuthorities:
 
     baseline = code_fingerprint()
     baseline_candidate = candidate_fingerprint()
+    service_scope = FP.fingerprint_architecture_code_inputs(
+        document=document,
+        adapters=adapters,
+        workspace_root=tmp_path,
+        selectors=("contextunity/services",),
+    ).sha256
+    package_path = tmp_path / "contextunity/packages/package.py"
+    package_original = package_path.read_text(encoding="utf-8")
+    package_path.write_text(package_original + " changed", encoding="utf-8")
+    assert (
+        FP.fingerprint_architecture_code_inputs(
+            document=document,
+            adapters=adapters,
+            workspace_root=tmp_path,
+            selectors=("contextunity/services",),
+        ).sha256
+        == service_scope
+    )
+    package_path.write_text(package_original, encoding="utf-8")
     for relative in ignored_paths:
         path = tmp_path / relative
         original = path.read_text(encoding="utf-8")
@@ -774,6 +793,80 @@ def test_complete_architecture_review_can_pass(tmp_path: Path) -> None:
     )
 
 
+def test_terminal_g0_and_supplemental_review_use_frozen_g0_receipts(
+    tmp_path: Path,
+) -> None:
+    document, adapters = _architecture_document(tmp_path)
+    document.write_text(
+        document.read_text(encoding="utf-8").replace(
+            "status: todo", "status: in_progress", 1
+        ),
+        encoding="utf-8",
+    )
+    semantic = FP.semantic_task_fingerprint(document.read_text(encoding="utf-8"))
+    semantic_record = f"""
+
+## ACDD contract fingerprint
+
+```yaml
+apiVersion: acdd/semantic-fingerprint/v1
+sha256: {semantic.sha256}
+ids: [{", ".join(semantic.ids)}]
+redProofFingerprint: {semantic.red_proof_sha256}
+redEvidenceIds: []
+```
+"""
+    amendment_id = "g1-redesign.fixture"
+    amendment = f"""
+
+## G1 redesign amendments
+
+```yaml
+apiVersion: acdd/architecture-amendments/v1
+kind: architecture-amendments
+items:
+  - id: {amendment_id}
+    baseG0Fingerprint: {semantic.sha256}
+    rationale: Implementation discovery requires one supplemental decision.
+    decisions: [decision.fixture]
+    coherence: [Preserves the frozen G0 owner boundary.]
+    propagation: [caller -> owner -> storage -> reader]
+    implementationPaths: [services/source.py]
+    proofIds: [proof.fixture]
+    review:
+      status: pending
+      evidence: pending
+      inputFingerprint: pending
+      recordedAt: pending
+    attempts: []
+```
+"""
+    document.write_text(
+        document.read_text(encoding="utf-8") + semantic_record + amendment,
+        encoding="utf-8",
+    )
+    (tmp_path / "services" / "source.py").write_text(
+        "changed after frozen G0\n", encoding="utf-8"
+    )
+    core = VALIDATOR.load_core(ROOT / "profiles" / "task" / "v1.yaml")
+    kwargs = {
+        "document": document,
+        "profile": core.profile_path,
+        "receipt_contract": core.receipt_contract_path,
+        "adapters": adapters,
+        "workspace_root": tmp_path,
+        "policies": VALIDATOR._gate_policies(core),
+        "plan": False,
+        "impact_axes": frozenset({"deployment"}),
+        "architecture_verification_schema": core.architecture_verification_schema,
+        "architecture_verification_contract": VALIDATOR.load_architecture_verification_yaml(
+            ROOT / "examples" / "task" / "architecture-verification.yaml"
+        ),
+    }
+    DOC.validate_document(**kwargs)
+    DOC.validate_document(**kwargs, reviewing_amendment=amendment_id)
+
+
 @pytest.mark.parametrize(
     ("overrides", "message"),
     [
@@ -855,13 +948,14 @@ def test_profile_only_migration_preserves_semantics(tmp_path: Path) -> None:
         red_evidence_ids=(),
     )
     ids = ", ".join(current.ids)
+    historical = "sha256:" + "2" * 64
     change = f"""## ACDD contract changes
 
 ```yaml
 apiVersion: acdd/contract-change/v1
 kind: profile-migration
-beforeFingerprint: {current.sha256}
-afterFingerprint: {current.sha256}
+beforeFingerprint: {historical}
+afterFingerprint: {historical}
 beforeIds: [{ids}]
 afterIds: [{ids}]
 ```"""

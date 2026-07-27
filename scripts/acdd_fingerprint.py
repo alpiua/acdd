@@ -5,10 +5,12 @@ import fnmatch
 import hashlib
 import json
 import re
+import subprocess
 from dataclasses import dataclass
 from pathlib import Path
 
 import yaml
+
 
 DIGEST_RE = re.compile(r"sha256:[0-9a-f]{64}")
 INPUT_TYPES = frozenset(
@@ -58,6 +60,8 @@ TASK_OPTIONAL_SEMANTIC_SECTIONS = (
     "Caller and alternate-path matrix",
     "Runtime path",
 )
+G0_BASELINE_SECTION = "G0 architecture baseline"
+G1_REDESIGN_SECTION = "G1 redesign amendments"
 
 
 class FingerprintError(ValueError):
@@ -105,6 +109,17 @@ class SemanticFingerprint:
     red_proof_sha256: str
 
 
+@dataclass(frozen=True)
+class ArchitectureAmendment:
+    id: str
+    base_g0_fingerprint: str
+    fingerprint: str
+    authority: dict[str, object]
+    review: dict[str, object]
+    receipt_path: str | None
+    attempts: tuple[dict[str, object], ...]
+
+
 def _sha256(data: bytes) -> str:
     return "sha256:" + hashlib.sha256(data).hexdigest()
 
@@ -113,6 +128,20 @@ def _canonical(value: object) -> bytes:
     return json.dumps(
         value, ensure_ascii=False, sort_keys=True, separators=(",", ":")
     ).encode("utf-8")
+
+
+def _workspace_relative_path(value: object, label: str) -> str:
+    if not isinstance(value, str) or not value.strip():
+        raise FingerprintError(f"{label}: expected a workspace-relative path")
+    normalized = value.strip()
+    path = Path(normalized)
+    if (
+        path.is_absolute()
+        or "\\" in normalized
+        or any(part in {"", ".", ".."} for part in path.parts)
+    ):
+        raise FingerprintError(f"{label}: expected a normalized workspace-relative path")
+    return path.as_posix()
 
 
 def markdown_sections(text: str) -> dict[str, str]:
@@ -435,20 +464,26 @@ def _implementation_root(adapters: tuple[Path, ...], workspace_root: Path) -> Pa
     return roots[0]
 
 
-def fingerprint_architecture_code_inputs(
+def architecture_code_snapshot_entries(
     *,
     document: Path,
     adapters: tuple[Path, ...],
     workspace_root: Path,
-) -> FingerprintResult:
-    """Hash the declared architecture code map once, excluding workflow/runtime state."""
+    selectors: tuple[str, ...] = (),
+) -> tuple[SnapshotEntry, ...]:
+    """Resolve one gate-scoped declared code map under the allowed implementation roots."""
     root = workspace_root.resolve()
     document_path = document.resolve()
     if not document_path.is_relative_to(root) or not document_path.is_file():
         raise FingerprintError("bound document is missing or escapes workspace root")
     authorities = _adapter_authorities(adapters, root)
     implementation_root = _implementation_root(adapters, root)
-    entries: list[SnapshotEntry] = []
+    normalized_selectors = tuple(
+        selector.rstrip("/")
+        for selector in selectors
+        if isinstance(selector, str) and selector.strip()
+    )
+    declared_entries: dict[str, SnapshotEntry] = {}
     for item in parse_inputs(document_path.read_text(encoding="utf-8")):
         unresolved = root / item.path
         try:
@@ -458,15 +493,86 @@ def fingerprint_architecture_code_inputs(
         if not relative.parts or relative.parts[0] not in ARCHITECTURE_CODE_ROOTS:
             continue
         path = _resolve_declared(item, root, authorities)
-        entries.append(SnapshotEntry(item.type, item.path, _sha256(path.read_bytes())))
+        declared_entries[item.path] = SnapshotEntry(
+            item.type, item.path, _sha256(path.read_bytes())
+        )
+    if normalized_selectors:
+        entries = {
+            path: entry
+            for path, entry in declared_entries.items()
+            if any(path == selector or path.startswith(selector + "/") for selector in normalized_selectors)
+        }
+        implementation_relative_selectors: list[str] = []
+        for selector in normalized_selectors:
+            try:
+                relative = (root / selector).resolve().relative_to(implementation_root)
+            except ValueError:
+                continue
+            if relative.parts and relative.parts[0] in ARCHITECTURE_CODE_ROOTS:
+                implementation_relative_selectors.append(relative.as_posix())
+        if implementation_relative_selectors:
+            tracked = subprocess.run(
+                [
+                    "git",
+                    "-C",
+                    str(implementation_root),
+                    "ls-files",
+                    "-z",
+                    "--",
+                    *implementation_relative_selectors,
+                ],
+                capture_output=True,
+                check=False,
+            )
+            if tracked.returncode == 0:
+                for raw_path in tracked.stdout.split(b"\0"):
+                    if not raw_path:
+                        continue
+                    relative = Path(raw_path.decode("utf-8"))
+                    if not relative.parts or relative.parts[0] not in ARCHITECTURE_CODE_ROOTS:
+                        continue
+                    path = (implementation_root / relative).resolve()
+                    if not path.is_file() or not path.is_relative_to(implementation_root):
+                        continue
+                    workspace_path = path.relative_to(root).as_posix()
+                    declared = declared_entries.get(workspace_path)
+                    entries[workspace_path] = SnapshotEntry(
+                        declared.type if declared is not None else "source",
+                        workspace_path,
+                        _sha256(path.read_bytes()),
+                    )
+    else:
+        entries = declared_entries
     if not entries:
         allowed = ", ".join(sorted(ARCHITECTURE_CODE_ROOTS))
-        raise FingerprintError(
-            f"architecture code map has no declared files under allowed roots: {allowed}"
+        scope = (
+            f" selected by {', '.join(normalized_selectors)}"
+            if normalized_selectors
+            else ""
         )
+        raise FingerprintError(
+            f"architecture code map{scope} has no declared files under allowed roots: {allowed}"
+        )
+    return tuple(sorted(entries.values(), key=lambda item: item.path))
+
+
+def fingerprint_architecture_code_inputs(
+    *,
+    document: Path,
+    adapters: tuple[Path, ...],
+    workspace_root: Path,
+    selectors: tuple[str, ...] = (),
+) -> FingerprintResult:
+    """Hash one gate-scoped declared code map, excluding workflow/runtime state."""
+    entries = architecture_code_snapshot_entries(
+        document=document,
+        adapters=adapters,
+        workspace_root=workspace_root,
+        selectors=selectors,
+    )
     canonical_entries = [
         {"path": entry.path, "sha256": entry.sha256}
-        for entry in sorted(entries, key=lambda item: item.path)
+        for entry in entries
     ]
     return FingerprintResult(
         sha256=_sha256(_canonical(canonical_entries)),
@@ -476,6 +582,33 @@ def fingerprint_architecture_code_inputs(
 
 def semantic_task_fingerprint(text: str) -> SemanticFingerprint:
     sections = markdown_sections(text)
+    if G0_BASELINE_SECTION in sections:
+        baseline = re.sub(
+            r"[ \t]+$", "", sections[G0_BASELINE_SECTION], flags=re.MULTILINE
+        ).strip()
+        if not baseline:
+            raise FingerprintError(f"{G0_BASELINE_SECTION}: must not be empty")
+        semantic_text = f"## {G0_BASELINE_SECTION}\n{baseline}"
+        ids = sorted(
+            set(
+                re.findall(
+                    r"\b(?:scope|contract|authority|lifecycle|decision|proof|red)"
+                    r"[._-][A-Za-z0-9._-]+\b",
+                    semantic_text,
+                )
+            )
+        )
+        red_lines = "\n".join(
+            line
+            for line in semantic_text.splitlines()
+            if re.search(r"\b(?:scope|red|proof)[._-][A-Za-z0-9._-]+\b", line)
+            or "Red + compositional test" in line
+        )
+        return SemanticFingerprint(
+            sha256=_sha256(semantic_text.encode("utf-8")),
+            ids=tuple(ids),
+            red_proof_sha256=_sha256(red_lines.encode("utf-8")),
+        )
     missing = [name for name in TASK_REQUIRED_SECTIONS if name not in sections]
     if missing:
         raise FingerprintError(
@@ -517,6 +650,161 @@ def semantic_task_fingerprint(text: str) -> SemanticFingerprint:
         ids=tuple(ids),
         red_proof_sha256=_sha256(red_lines.encode("utf-8")),
     )
+
+
+def parse_architecture_amendments(text: str) -> tuple[ArchitectureAmendment, ...]:
+    sections = markdown_sections(text)
+    section = sections.get(G1_REDESIGN_SECTION)
+    if section is None:
+        return ()
+    documents = yaml_documents(section, G1_REDESIGN_SECTION)
+    if len(documents) != 1:
+        raise FingerprintError(f"{G1_REDESIGN_SECTION}: expected one YAML document")
+    root = _mapping(documents[0], G1_REDESIGN_SECTION)
+    api_version = root.get("apiVersion")
+    if (
+        api_version not in {"acdd/architecture-amendments/v1", "acdd/architecture-amendments/v2"}
+        or root.get("kind") != "architecture-amendments"
+        or set(root) != {"apiVersion", "kind", "items"}
+    ):
+        raise FingerprintError(
+            f"{G1_REDESIGN_SECTION}: expected architecture-amendments/v1 or v2 document"
+        )
+    external_receipts = api_version == "acdd/architecture-amendments/v2"
+    raw_items = root.get("items")
+    if not isinstance(raw_items, list):
+        raise FingerprintError(f"{G1_REDESIGN_SECTION}.items: expected a list")
+    result: list[ArchitectureAmendment] = []
+    seen: set[str] = set()
+    authority_fields = (
+        "id",
+        "baseG0Fingerprint",
+        "rationale",
+        "decisions",
+        "coherence",
+        "propagation",
+        "implementationPaths",
+        "proofIds",
+    )
+    for index, raw in enumerate(raw_items):
+        item = _mapping(raw, f"{G1_REDESIGN_SECTION}.items[{index}]")
+        required = set(authority_fields) | ({"review"} if external_receipts else {"review", "attempts"})
+        if set(item) != required:
+            raise FingerprintError(
+                f"{G1_REDESIGN_SECTION}.items[{index}]: "
+                f"missing={sorted(required - set(item))} "
+                f"unknown={sorted(set(item) - required)}"
+            )
+        amendment_id = _string(item.get("id"), f"amendment[{index}].id")
+        if not re.fullmatch(r"[a-z][a-z0-9._-]+", amendment_id):
+            raise FingerprintError(f"amendment[{index}].id: invalid identifier")
+        if amendment_id in seen:
+            raise FingerprintError(f"duplicate amendment id {amendment_id!r}")
+        seen.add(amendment_id)
+        base = _string(
+            item.get("baseG0Fingerprint"), f"amendment[{index}].baseG0Fingerprint"
+        )
+        if DIGEST_RE.fullmatch(base) is None:
+            raise FingerprintError(
+                f"amendment[{index}].baseG0Fingerprint: expected sha256"
+            )
+        authority: dict[str, object] = {
+            "apiVersion": "acdd/architecture-amendment/v1",
+            "id": amendment_id,
+            "baseG0Fingerprint": base,
+            "rationale": _string(item.get("rationale"), f"amendment[{index}].rationale"),
+        }
+        for field in authority_fields[3:]:
+            authority[field] = _string_list(
+                item.get(field), f"amendment[{index}].{field}"
+            )
+        review = _mapping(item.get("review"), f"amendment[{index}].review")
+        receipt_path: str | None = None
+        attempts: list[dict[str, object]] = []
+        if external_receipts:
+            if set(review) != {
+                "status",
+                "receipt",
+                "receiptSha256",
+                "transcript",
+                "transcriptSha256",
+                "inputFingerprint",
+                "recordedAt",
+            }:
+                raise FingerprintError(
+                    f"amendment[{index}].review: expected status, artifact paths, "
+                    "artifact digests, inputFingerprint, and recordedAt"
+                )
+            receipt_path = _workspace_relative_path(
+                review.get("receipt"), f"amendment[{index}].review.receipt"
+            )
+            _workspace_relative_path(
+                review.get("transcript"), f"amendment[{index}].review.transcript"
+            )
+        else:
+            if set(review) != {"status", "evidence", "inputFingerprint", "recordedAt"}:
+                raise FingerprintError(
+                    f"amendment[{index}].review: expected status, evidence, "
+                    "inputFingerprint, and recordedAt"
+                )
+            raw_attempts = item.get("attempts")
+            if not isinstance(raw_attempts, list):
+                raise FingerprintError(f"amendment[{index}].attempts: expected a list")
+            for attempt_index, raw_attempt in enumerate(raw_attempts):
+                attempt = _mapping(
+                    raw_attempt, f"amendment[{index}].attempts[{attempt_index}]"
+                )
+                if not {"inputFingerprint", "verdict", "recordedAt"} <= set(attempt):
+                    raise FingerprintError(
+                        f"amendment[{index}].attempts[{attempt_index}]: "
+                        "missing terminal attempt fields"
+                    )
+                attempts.append(attempt)
+        payload = {
+            "apiVersion": "acdd/architecture-amendment-candidate/v1",
+            "authority": authority,
+        }
+        result.append(
+            ArchitectureAmendment(
+                id=amendment_id,
+                base_g0_fingerprint=base,
+                fingerprint=_sha256(_canonical(payload)),
+                authority=authority,
+                review=review,
+                receipt_path=receipt_path,
+                attempts=tuple(attempts),
+            )
+        )
+    return tuple(result)
+
+
+def architecture_amendment_fingerprint(text: str, amendment_id: str) -> str:
+    matches = [
+        amendment
+        for amendment in parse_architecture_amendments(text)
+        if amendment.id == amendment_id
+    ]
+    if len(matches) != 1:
+        raise FingerprintError(f"unknown architecture amendment {amendment_id!r}")
+    return matches[0].fingerprint
+
+
+def architecture_authority_ids(text: str) -> tuple[str, ...]:
+    ids = set(semantic_task_fingerprint(text).ids)
+    for amendment in parse_architecture_amendments(text):
+        authority_text = json.dumps(
+            amendment.authority,
+            ensure_ascii=False,
+            sort_keys=True,
+        )
+        ids.update(
+            re.findall(
+                r"\b(?:scope|contract|authority|lifecycle|decision|proof|red)"
+                r"[._-][A-Za-z0-9._-]+\b",
+                authority_text,
+            )
+        )
+    return tuple(sorted(ids))
 
 
 def fingerprint_architecture_candidate(

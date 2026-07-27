@@ -18,14 +18,14 @@ domains:
       roots: [contextunity]
       terms: [measurement_range, validate_measurement, measurements_value_check]
       files:
-        - {path: contextunity/services/api/measurement_input.py, roles: [producer, public-type]}
-        - {path: contextunity/services/worker/measurement_writer.py, roles: [writer]}
-        - {path: contextunity/storage/measurement_schema.sql, roles: [schema, migration]}
-        - {path: contextunity/services/api/measurement_reader.py, roles: [reader]}
-        - {path: contextunity/tests/test_measurement_range.py, roles: [proof]}
+- {path: services/api/measurement_input.py, roles: [producer, public-type]}
+- {path: services/worker/measurement_writer.py, roles: [writer]}
+- {path: packages/storage/measurement_schema.sql, roles: [schema, migration]}
+- {path: services/api/measurement_reader.py, roles: [reader]}
+- {path: services/api/tests/test_measurement_range.py, roles: [proof]}
     compatibility:
       strategy: preflight-reject
-      compatibilityPaths: [contextunity/services/api/measurement_reader.py]
+compatibilityPaths: [services/api/measurement_reader.py]
       proofIds: [proof.measurement-range]
     proofIds: [proof.measurement-range]
 ```

@@ -8,12 +8,16 @@ from pathlib import Path
 from uuid import UUID
 
 from acdd_fingerprint import (
+    G0_BASELINE_SECTION,
     DIGEST_RE,
+    ArchitectureAmendment,
+    architecture_authority_ids,
     FingerprintError,
     SemanticFingerprint,
     fingerprint_architecture_candidate,
     fingerprint_inputs,
     markdown_sections,
+    parse_architecture_amendments,
     parse_inputs,
     semantic_task_fingerprint,
     yaml_documents,
@@ -357,7 +361,14 @@ def parse_evidence(
                 "persistedContractMappings",
                 "discoveryComplete",
             },
-            frozenset({"verification"}),
+            frozenset(
+                {
+                    "verification",
+                    "amendmentId",
+                    "baseG0Fingerprint",
+                    "codeSnapshotFingerprint",
+                }
+            ),
         ),
         "handoff": (
             common | {"summary", "receipts", "blockers"},
@@ -549,6 +560,38 @@ def parse_evidence(
                 ),
             ):
                 _bool(item.get(field), f"evidence {evidence_id}.{field}")
+            architecture_fingerprint_fields = {
+                "baseG0Fingerprint",
+                "codeSnapshotFingerprint",
+            }
+            present_architecture_fields = architecture_fingerprint_fields & set(item)
+            if present_architecture_fields and present_architecture_fields != architecture_fingerprint_fields:
+                raise DocumentError(
+                    f"evidence {evidence_id}: baseG0Fingerprint and "
+                    "codeSnapshotFingerprint must appear together"
+                )
+            if present_architecture_fields:
+                _fingerprint(
+                    item.get("baseG0Fingerprint"),
+                    f"evidence {evidence_id}.baseG0Fingerprint",
+                )
+                _fingerprint(
+                    item.get("codeSnapshotFingerprint"),
+                    f"evidence {evidence_id}.codeSnapshotFingerprint",
+                )
+            if "amendmentId" in item:
+                amendment_id = _string(
+                    item.get("amendmentId"), f"evidence {evidence_id}.amendmentId"
+                )
+                if EVIDENCE_ID_RE.fullmatch(amendment_id) is None:
+                    raise DocumentError(
+                        f"evidence {evidence_id}.amendmentId: invalid identifier"
+                    )
+                if not present_architecture_fields:
+                    raise DocumentError(
+                        f"evidence {evidence_id}: amendment review requires "
+                        "baseG0Fingerprint and codeSnapshotFingerprint"
+                    )
         elif kind == "handoff":
             _string(item.get("summary"), f"evidence {evidence_id}.summary")
             _string_list(item.get("receipts"), f"evidence {evidence_id}.receipts")
@@ -730,7 +773,11 @@ def parse_semantic_record(text: str) -> SemanticRecord:
         raise DocumentError("unsupported semantic fingerprint apiVersion")
     return SemanticRecord(
         sha256=_fingerprint(item.get("sha256"), "semantic fingerprint.sha256"),
-        ids=tuple(_string_list(item.get("ids"), "semantic fingerprint.ids", allow_empty=True)),
+        ids=tuple(
+            _string_list(
+                item.get("ids"), "semantic fingerprint.ids", allow_empty=True
+            )
+        ),
         red_proof_sha256=_fingerprint(
             item.get("redProofFingerprint"),
             "semantic fingerprint.redProofFingerprint",
@@ -745,6 +792,196 @@ def parse_semantic_record(text: str) -> SemanticRecord:
     )
 
 
+def _validate_architecture_amendments(
+    *,
+    text: str,
+    document: Path,
+    workspace_root: Path,
+    amendments: tuple[ArchitectureAmendment, ...],
+    semantic_record: SemanticRecord | None,
+    receipts: tuple[Receipt, ...],
+    evidence: dict[str, Evidence],
+    expected_value_domain_ids: set[str],
+    architecture_verification_schema: dict[str, object] | None,
+    architecture_verification_contract: dict[str, object] | None,
+    reviewing_amendment: str | None = None,
+) -> None:
+    if not amendments:
+        if reviewing_amendment is not None:
+            raise DocumentError(
+                f"unknown pending architecture amendment {reviewing_amendment!r}"
+            )
+        return
+    if semantic_record is None:
+        raise DocumentError("G1 redesign amendments require an active G0 fingerprint")
+    receipt_map = {receipt.gate: receipt for receipt in receipts}
+    architecture_receipt = receipt_map.get("architecture/v1")
+    if architecture_receipt is None or architecture_receipt.status != "pass":
+        raise DocumentError("G1 redesign amendments require a terminal G0 architecture PASS")
+    unresolved: list[str] = []
+    for amendment in amendments:
+        if amendment.base_g0_fingerprint != semantic_record.sha256:
+            raise DocumentError(
+                f"amendment {amendment.id}: baseG0Fingerprint does not match "
+                "the frozen G0 baseline"
+            )
+        review = amendment.review
+        status = _string(review.get("status"), f"amendment {amendment.id}.review.status")
+        if amendment.receipt_path is not None:
+            if status == "pending":
+                if any(
+                    review.get(field) != "pending"
+                    for field in (
+                        "receiptSha256",
+                        "transcriptSha256",
+                        "inputFingerprint",
+                        "recordedAt",
+                    )
+                ):
+                    raise DocumentError(
+                        f"amendment {amendment.id}: pending review must use pending terminal values"
+                    )
+                unresolved.append(amendment.id)
+                continue
+            if status not in {"pass", "fail", "blocked"}:
+                raise DocumentError(
+                    f"amendment {amendment.id}.review.status: expected pending, pass, fail, or blocked"
+                )
+            _fingerprint(
+                review.get("receiptSha256"),
+                f"amendment {amendment.id}.review.receiptSha256",
+            )
+            _fingerprint(
+                review.get("transcriptSha256"),
+                f"amendment {amendment.id}.review.transcriptSha256",
+            )
+            input_fingerprint = _fingerprint(
+                review.get("inputFingerprint"),
+                f"amendment {amendment.id}.review.inputFingerprint",
+            )
+            _timestamp(
+                review.get("recordedAt"), f"amendment {amendment.id}.review.recordedAt"
+            )
+            if status == "pass" and input_fingerprint != amendment.fingerprint:
+                raise DocumentError(
+                    f"amendment {amendment.id}: stale supplemental architecture fingerprint"
+                )
+            if status != "pass":
+                unresolved.append(amendment.id)
+            continue
+        else:
+            if status == "pending":
+                if any(
+                    review.get(field) != "pending"
+                    for field in ("evidence", "inputFingerprint", "recordedAt")
+                ):
+                    raise DocumentError(
+                        f"amendment {amendment.id}: pending review must contain only pending values"
+                    )
+                unresolved.append(amendment.id)
+                continue
+            if status != "pass":
+                raise DocumentError(
+                    f"amendment {amendment.id}.review.status: expected pending or pass"
+                )
+            evidence_id = _string(
+                review.get("evidence"), f"amendment {amendment.id}.review.evidence"
+            )
+            input_fingerprint = _fingerprint(
+                review.get("inputFingerprint"),
+                f"amendment {amendment.id}.review.inputFingerprint",
+            )
+            _timestamp(
+                review.get("recordedAt"), f"amendment {amendment.id}.review.recordedAt"
+            )
+            if input_fingerprint != amendment.fingerprint:
+                raise DocumentError(
+                    f"amendment {amendment.id}: stale supplemental architecture fingerprint"
+                )
+            review_evidence = evidence.get(evidence_id)
+            if review_evidence is None:
+                raise DocumentError(
+                    f"amendment {amendment.id}: missing evidence {evidence_id!r}"
+                )
+            data = review_evidence.data
+            if (
+                review_evidence.kind != "review"
+                or review_evidence.gate != "architecture-amendment/v1"
+                or review_evidence.input_fingerprint != amendment.fingerprint
+                or data.get("amendmentId") != amendment.id
+                or data.get("baseG0Fingerprint") != amendment.base_g0_fingerprint
+                or data.get("terminalVerdict") != "PASS"
+                or data.get("independent") is not True
+                or data.get("sessionUuid") == data.get("authorSessionUuid")
+            ):
+                raise DocumentError(
+                    f"amendment {amendment.id}: invalid supplemental architecture review"
+                )
+            verification = data.get("verification")
+        if (
+            not isinstance(verification, dict)
+            or verification.get("inputFingerprint") != amendment.fingerprint
+            or architecture_verification_schema is None
+            or architecture_verification_contract is None
+        ):
+            raise DocumentError(
+                f"amendment {amendment.id}: missing routed verification result"
+            )
+        try:
+            validate_architecture_verification_result(
+                architecture_verification_contract,
+                architecture_verification_schema,
+                verification,
+                expected_value_domain_ids=expected_value_domain_ids,
+            )
+        except ArchitectureVerificationError as exc:
+            raise DocumentError(str(exc)) from exc
+    if reviewing_amendment is not None:
+        selected = next(
+            (item for item in amendments if item.id == reviewing_amendment), None
+        )
+        if selected is None:
+            raise DocumentError(
+                f"unknown pending architecture amendment {reviewing_amendment!r}"
+            )
+        if selected.id not in unresolved:
+            raise DocumentError(
+                f"architecture amendment {reviewing_amendment!r} is not reviewable"
+            )
+    if unresolved and reviewing_amendment is None:
+        for gate in (
+            "runtime/v1",
+            "parity/v1",
+            "security/v1",
+            "release/v1",
+            "review/v1",
+            "handoff/v1",
+        ):
+            receipt = receipt_map.get(gate)
+            if receipt is not None and receipt.status not in {"pending", "blocked"}:
+                raise DocumentError(
+                    f"unreviewed architecture amendments {unresolved} block {gate}"
+                )
+def _architecture_freshness_basis(
+    *,
+    text: str,
+    semantic: SemanticFingerprint | None,
+    gate_evidence: Evidence,
+    receipt: Receipt,
+    candidate_fingerprint: str,
+    legacy_code_fingerprint: str,
+) -> frozenset[str]:
+    if (
+        G0_BASELINE_SECTION in markdown_sections(text)
+        and semantic is not None
+        and gate_evidence.data.get("baseG0Fingerprint") == semantic.sha256
+        and gate_evidence.data.get("codeSnapshotFingerprint") is not None
+        and receipt.input_fingerprint is not None
+    ):
+        return frozenset({receipt.input_fingerprint})
+    return frozenset({candidate_fingerprint, legacy_code_fingerprint})
+
+
 def _validate_contract_changes(
     text: str,
     *,
@@ -757,7 +994,6 @@ def _validate_contract_changes(
     if (
         record.sha256 == current.sha256
         and record.ids == current.ids
-        and "ACDD contract changes" not in sections
     ):
         return
     if "ACDD contract changes" not in sections:
@@ -875,6 +1111,7 @@ def validate_document(
     impact_axes: frozenset[str],
     architecture_verification_schema: dict[str, object] | None = None,
     architecture_verification_contract: dict[str, object] | None = None,
+    reviewing_amendment: str | None = None,
 ) -> None:
     text = document.read_text(encoding="utf-8")
     if LEGACY_REFERENCE_RE.search(text):
@@ -902,7 +1139,7 @@ def validate_document(
                 text,
                 workspace_root=workspace_root,
                 declared_paths=declared_paths,
-                semantic_ids=frozenset(semantic.ids),
+                semantic_ids=frozenset(architecture_authority_ids(text)),
             )
         )
     except (FingerprintError, ValueDomainError) as exc:
@@ -914,6 +1151,23 @@ def validate_document(
         active=active,
     )
     receipts = parse_receipts(text, plan=plan)
+    try:
+        amendments = () if plan else parse_architecture_amendments(text)
+    except FingerprintError as exc:
+        raise DocumentError(str(exc)) from exc
+    _validate_architecture_amendments(
+        text=text,
+        document=document,
+        workspace_root=workspace_root,
+        amendments=amendments,
+        semantic_record=semantic_record,
+        receipts=receipts,
+        evidence=evidence,
+        expected_value_domain_ids={domain.id for domain in value_domains},
+        architecture_verification_schema=architecture_verification_schema,
+        architecture_verification_contract=architecture_verification_contract,
+        reviewing_amendment=reviewing_amendment,
+    )
     policy_map = {policy.gate: policy for policy in policies}
     receipt_map = {receipt.gate: receipt for receipt in receipts}
     if set(receipt_map) != set(policy_map):
@@ -921,6 +1175,11 @@ def validate_document(
             f"receipt gates mismatch: expected={list(policy_map)} found={list(receipt_map)}"
         )
     gate_order = tuple(policy_map)
+    g0_frozen = (
+        semantic_record is not None
+        and receipt_map.get("architecture/v1") is not None
+        and receipt_map["architecture/v1"].status == "pass"
+    )
     seen_evidence: set[str] = set()
     terminal_seen = True
     for policy in policies:
@@ -1015,6 +1274,16 @@ def validate_document(
             )
             current = architecture_candidate.sha256
             legacy_architecture_fingerprint = architecture_candidate.code_sha256
+            architecture_freshness = _architecture_freshness_basis(
+                text=text,
+                semantic=semantic,
+                gate_evidence=gate_evidence,
+                receipt=receipt,
+                candidate_fingerprint=current,
+                legacy_code_fingerprint=legacy_architecture_fingerprint,
+            )
+            if receipt.input_fingerprint in architecture_freshness:
+                current = receipt.input_fingerprint or current
         else:
             current = fingerprint_inputs(
                 document=document,
@@ -1025,15 +1294,23 @@ def validate_document(
                 include_types=current_inputs,
                 include_classes=current_classes,
             ).sha256
-        # Recomputing the basis against the working tree answers "must this gate be
-        # rerun before closure", which is only a question while the task is in
-        # delivery. A terminal receipt would otherwise go stale the moment any
-        # shared input changes for unrelated work. The evidence-to-receipt
-        # agreement below is always verifiable, so tampering is still caught.
+        # Normal delivery validates every terminal receipt against current inputs.
+        # Supplemental amendment review instead validates the selected amendment
+        # against its frozen G0 fingerprint; historical receipt bytes remain
+        # evidence and must still agree with their receipt, but are not its admission
+        # snapshot. This lets redesign review precede downstream receipt refresh.
         if (
             gate_evidence.input_fingerprint != receipt.input_fingerprint
             or (
                 active
+                and not (
+                    g0_frozen
+                    and policy.gate in {"matrix/v1", "architecture/v1"}
+                )
+                and (
+                    reviewing_amendment is None
+                    or policy.gate not in {"matrix/v1", "architecture/v1"}
+                )
                 and receipt.input_fingerprint
                 not in {current, legacy_architecture_fingerprint}
             )
@@ -1192,34 +1469,69 @@ def validate_document(
                 # fresh architecture/v1 run can produce a revision 2 result.
                 if gate_evidence.data.get("contractRevision", CURRENT_EVIDENCE_REVISION) == CURRENT_EVIDENCE_REVISION:
                     try:
+                        verification_context = verification.get("reviewContext")
+                        verification_coverage = (
+                            {
+                                path
+                                for item in verification_context.get("coverageFiles", [])
+                                if isinstance(item, dict)
+                                for path in (item.get("path"), item.get("repositoryPath"))
+                                if isinstance(path, str) and path.strip()
+                            }
+                            if isinstance(verification_context, dict)
+                            else None
+                        )
+                        verification_path_contract = (
+                            verification_context.get("pathContract")
+                            if isinstance(verification_context, dict)
+                            else None
+                        )
+                        verification_repository_root = (
+                            verification_path_contract.get(
+                                "implementationRepositoryRoot",
+                                verification_path_contract.get("workspaceRoot"),
+                            )
+                            if isinstance(verification_path_contract, dict)
+                            else None
+                        )
                         validate_architecture_verification_result(
                             architecture_verification_contract,
                             architecture_verification_schema,
                             verification,
                             expected_value_domain_ids=expected_value_domain_ids,
+                            expected_document=document,
+                            expected_task_paths={
+                                document.as_posix(),
+                                document.relative_to(workspace_root).as_posix(),
+                                document.name,
+                            },
+                            expected_repository_root=verification_repository_root,
+                            expected_coverage_paths=verification_coverage,
                         )
                     except ArchitectureVerificationError as exc:
                         raise DocumentError(str(exc)) from exc
-                try:
-                    validate_architecture_admission(
-                        text=text,
-                        workspace_root=workspace_root,
-                        architecture_fingerprint=gate_evidence.input_fingerprint,
-                    )
-                except ArchitectureGovernorError as exc:
-                    raise DocumentError(
-                        f"architecture/v1 admission failed: {exc}"
-                    ) from exc
+                if not g0_frozen:
+                    try:
+                        validate_architecture_admission(
+                            text=text,
+                            workspace_root=workspace_root,
+                            architecture_fingerprint=gate_evidence.input_fingerprint,
+                        )
+                    except ArchitectureGovernorError as exc:
+                        raise DocumentError(
+                            f"architecture/v1 admission failed: {exc}"
+                        ) from exc
         if receipt.status == "blocked" or receipt.status not in policy.terminal_statuses:
             terminal_seen = False
     if semantic is not None and semantic_record is not None:
-        _validate_contract_changes(
-            text,
-            current=semantic,
-            record=semantic_record,
-            receipts=receipts,
-            gate_order=gate_order,
-        )
+        if reviewing_amendment is None:
+            _validate_contract_changes(
+                text,
+                current=semantic,
+                record=semantic_record,
+                receipts=receipts,
+                gate_order=gate_order,
+            )
         if any(
             evidence_id not in evidence
             or evidence[evidence_id].gate != "red/v1"

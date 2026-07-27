@@ -6,6 +6,7 @@ import argparse
 import fnmatch
 import json
 import re
+import subprocess
 import sys
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
@@ -13,12 +14,19 @@ from pathlib import Path, PurePosixPath
 import yaml
 
 from acdd_document import DocumentError, GatePolicy, validate_document
+from acdd_fingerprint import (
+    architecture_authority_ids,
+    parse_architecture_amendments,
+    parse_inputs,
+)
+from value_domains import parse_value_domains
 from invalidation import InvalidationError, validate_graph
 from structural_invariants import StructuralInvariantError, load_contract as load_structural_invariants
 from architecture_verification import (
     ArchitectureVerificationError,
     load_yaml as load_architecture_verification_yaml,
     validate_contract as validate_architecture_verification_contract,
+    validate_result as validate_architecture_verification_result,
     validate_schema as validate_architecture_verification_schema,
 )
 
@@ -742,8 +750,8 @@ def _validate_executor_gate_procedures(
             if launcher_kind == "command" and launcher_target in admit | deny:
                 raise ContractError(f"{label}.{gate_id}.{launcher_name} command {launcher_target!r} must not be represented as a child tool")
         if gate_id == "architecture/v1":
-            if runtime != "pi" or any(item["kind"] != "command" or item["target"] != "pi" for item in launchers.values()):
-                raise ContractError("architecture/v1 must use Pi runtime provenance with concrete Pi command launchers")
+            if any(item["kind"] != "command" for item in launchers.values()):
+                raise ContractError("architecture/v1 must use concrete command launchers")
             required_tools = {"mcp"}
             denied_tools = {"bash", "edit", "write", "pi_review_agents"}
             if not required_tools <= admit or not denied_tools <= deny:
@@ -752,35 +760,44 @@ def _validate_executor_gate_procedures(
                 continue
             if procedure.get("authoritativeSessions") != 1:
                 raise ContractError("architecture/v1 requires one authoritative session")
-            if procedure.get("reviewRoot") != "workspace" or procedure.get("commandCwd") != "implementation-repository":
-                raise ContractError("architecture/v1 must use workspace review root and implementation repository command CWD")
+            review_root = procedure.get("reviewRoot")
+            command_cwd = procedure.get("commandCwd")
+            if not isinstance(review_root, str) or not review_root.strip():
+                raise ContractError("architecture/v1 reviewRoot must be a non-empty adapter-owned value")
+            if not isinstance(command_cwd, str) or not command_cwd.strip():
+                raise ContractError("architecture/v1 commandCwd must be a non-empty adapter-owned value")
+            if command_cwd.startswith("/") or any(part == ".." for part in Path(command_cwd).parts):
+                raise ContractError("architecture/v1 commandCwd must not be absolute or escape its adapter")
             _validate_discovery_bindings(procedure.get("discoveryMethods"), f"{label}.{gate_id}.discoveryMethods")
-            if has_launchers:
-                for name, launcher in launchers.items():
-                    arguments = launcher["arguments"]
+            if runtime == "pi":
+                if any(item["target"] != "pi" for item in launchers.values()):
+                    raise ContractError("Pi architecture runtime must use concrete Pi command launchers")
+                if has_launchers:
+                    for name, launcher in launchers.items():
+                        arguments = launcher["arguments"]
+                        assert isinstance(arguments, list)
+                        for flag in ("--provider", "--model", "--thinking"):
+                            positions = [index for index, argument in enumerate(arguments) if argument == flag]
+                            if len(positions) != 1 or positions[0] + 1 >= len(arguments) or not arguments[positions[0] + 1].strip():
+                                raise ContractError(f"architecture/v1 {name} launcher must bind {flag} exactly once")
+                    inspector_arguments = launchers["inspector"]["arguments"]
+                    coordinator_arguments = launchers["coordinator"]["arguments"]
+                    inspector_tool_flags = [index for index, argument in enumerate(inspector_arguments) if argument == "--tools"]
+                    if len(inspector_tool_flags) != 1 or inspector_tool_flags[0] + 1 >= len(inspector_arguments) or inspector_arguments[inspector_tool_flags[0] + 1] != "mcp" or "--no-tools" in inspector_arguments:
+                        raise ContractError("architecture/v1 inspector launcher must enable only mcp tools")
+                    if coordinator_arguments.count("--no-tools") != 1 or "--tools" in coordinator_arguments:
+                        raise ContractError("architecture/v1 coordinator launcher must disable all tools")
+                else:
+                    model = procedure.get("model")
+                    model_fields = {"provider", "modelId", "reasoning"}
+                    if not isinstance(model, dict) or set(model) != model_fields or not all(isinstance(model[field], str) and model[field].strip() for field in model_fields):
+                        raise ContractError("architecture/v1 legacy model must contain provider, modelId, and reasoning")
+                    arguments = launchers["legacy"]["arguments"]
                     assert isinstance(arguments, list)
-                    for flag in ("--provider", "--model", "--thinking"):
+                    for flag, field in (("--provider", "provider"), ("--model", "modelId"), ("--thinking", "reasoning")):
                         positions = [index for index, argument in enumerate(arguments) if argument == flag]
-                        if len(positions) != 1 or positions[0] + 1 >= len(arguments) or not arguments[positions[0] + 1].strip():
-                            raise ContractError(f"architecture/v1 {name} launcher must bind {flag} exactly once")
-                inspector_arguments = launchers["inspector"]["arguments"]
-                coordinator_arguments = launchers["coordinator"]["arguments"]
-                inspector_tool_flags = [index for index, argument in enumerate(inspector_arguments) if argument == "--tools"]
-                if len(inspector_tool_flags) != 1 or inspector_tool_flags[0] + 1 >= len(inspector_arguments) or inspector_arguments[inspector_tool_flags[0] + 1] != "mcp" or "--no-tools" in inspector_arguments:
-                    raise ContractError("architecture/v1 inspector launcher must enable only mcp tools")
-                if coordinator_arguments.count("--no-tools") != 1 or "--tools" in coordinator_arguments:
-                    raise ContractError("architecture/v1 coordinator launcher must disable all tools")
-            else:
-                model = procedure.get("model")
-                model_fields = {"provider", "modelId", "reasoning"}
-                if not isinstance(model, dict) or set(model) != model_fields or not all(isinstance(model[field], str) and model[field].strip() for field in model_fields):
-                    raise ContractError("architecture/v1 legacy model must contain provider, modelId, and reasoning")
-                arguments = launchers["legacy"]["arguments"]
-                assert isinstance(arguments, list)
-                for flag, field in (("--provider", "provider"), ("--model", "modelId"), ("--thinking", "reasoning")):
-                    positions = [index for index, argument in enumerate(arguments) if argument == flag]
-                    if len(positions) != 1 or positions[0] + 1 >= len(arguments) or arguments[positions[0] + 1] != model[field]:
-                        raise ContractError(f"architecture/v1 launcher {flag} must match model.{field}")
+                        if len(positions) != 1 or positions[0] + 1 >= len(arguments) or arguments[positions[0] + 1] != model[field]:
+                            raise ContractError(f"architecture/v1 launcher {flag} must match model.{field}")
             contract_path = _resolve(
                 owner,
                 procedure.get("contract"),
@@ -1068,6 +1085,104 @@ def _architecture_verification_contract(
     return contract
 
 
+def _validate_architecture_artifacts(
+    *,
+    document: Path,
+    workspace_root: Path,
+    adapters: dict[str, Path],
+    core: CoreContract,
+) -> None:
+    amendments = parse_architecture_amendments(document.read_text(encoding="utf-8"))
+    external = [item for item in amendments if item.receipt_path is not None]
+    if not external:
+        return
+    task_adapter_path = _workspace_path(
+        adapters["task"], workspace_root, "adapter task"
+    )
+    task_adapter = load_adapter(
+        task_adapter_path, "task", core, allowed_root=workspace_root
+    )
+    scripts = task_adapter.get("scripts")
+    raw = scripts.get("architectureArtifacts") if isinstance(scripts, dict) else None
+    script = _resolve(
+        task_adapter_path,
+        raw,
+        "task adapter scripts.architectureArtifacts",
+        allowed_root=workspace_root,
+    )
+    for amendment in external:
+        run = subprocess.run(
+            [
+                sys.executable,
+                str(script),
+                "validate",
+                "--workspace-root",
+                str(workspace_root),
+                "--document",
+                str(document),
+                "--amendment",
+                amendment.id,
+            ],
+            cwd=workspace_root,
+            text=True,
+            input="{}",
+            capture_output=True,
+            check=False,
+        )
+        if run.returncode:
+            detail = (run.stderr or run.stdout).strip().replace("\n", " ")[:1024]
+            raise ContractError(
+                f"architecture amendment {amendment.id} artifact validation failed: {detail}"
+            )
+        try:
+            result = json.loads(run.stdout)
+        except json.JSONDecodeError as exc:
+            raise ContractError(
+                f"architecture amendment {amendment.id} artifact validator returned invalid JSON"
+            ) from exc
+        status = amendment.review.get("status")
+        if status in {"pass", "fail"}:
+            verification = result.get("verification") if isinstance(result, dict) else None
+            if not isinstance(verification, dict):
+                raise ContractError(
+                    f"architecture amendment {amendment.id} lacks terminal verification"
+                )
+            contract = _architecture_verification_contract(
+                core, adapters, workspace_root
+            )
+            if contract is None or core.architecture_verification_schema is None:
+                raise ContractError("architecture amendment verification contract is unavailable")
+            try:
+                text = document.read_text(encoding="utf-8")
+                expected_domains = {
+                    domain.id
+                    for domain in parse_value_domains(
+                        text,
+                        workspace_root=workspace_root,
+                        declared_paths=frozenset(
+                            item.path for item in parse_inputs(text)
+                        ),
+                        semantic_ids=frozenset(
+                            architecture_authority_ids(text)
+                        ),
+                    )
+                }
+                validate_architecture_verification_result(
+                    contract,
+                    core.architecture_verification_schema,
+                    verification,
+                    expected_value_domain_ids=expected_domains,
+                )
+            except ArchitectureVerificationError as exc:
+                raise ContractError(str(exc)) from exc
+            if verification.get("inputFingerprint") != amendment.review.get(
+                "inputFingerprint"
+            ):
+                raise ContractError(
+                    f"architecture amendment {amendment.id} verification fingerprint mismatch"
+                )
+
+
 def auto_fix_receipt_fingerprints(
     *,
     document_path: Path,
@@ -1122,6 +1237,10 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--document", type=Path, required=True)
     parser.add_argument("--adapter", action="append", default=[], metavar="ROLE=PATH")
     parser.add_argument("--settings", type=Path)
+    parser.add_argument(
+        "--reviewing-amendment",
+        help="Allow one pending architecture amendment through review preflight",
+    )
     parser.add_argument("--fix", action="store_true", help="Auto-repair stale receipt fingerprints in document for valid evidence")
     args = parser.parse_args(argv)
     try:
@@ -1157,6 +1276,13 @@ def main(argv: list[str] | None = None) -> int:
             architecture_verification_contract=_architecture_verification_contract(
                 core, adapters, args.workspace_root.resolve()
             ),
+            reviewing_amendment=args.reviewing_amendment,
+        )
+        _validate_architecture_artifacts(
+            document=doc_path,
+            workspace_root=args.workspace_root.resolve(),
+            adapters=adapters,
+            core=core,
         )
     except (ContractError, DocumentError) as exc:
         print(f"ACDD INVALID: {exc}", file=sys.stderr)

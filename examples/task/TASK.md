@@ -22,6 +22,22 @@ The example uses one canonical owner and no alternate writer.
 
 `contract.example` binds the input, owner, result, and failure behavior.
 
+## G0 architecture baseline
+
+### Outcome and ownership
+
+`decision.example-coverage` selects one canonical owner and no alternate writer.
+
+### Contract and propagation
+
+`contract.example` binds input, owner, result, and failure behavior through
+`trigger → caller → contract.example → owner → result`.
+
+### Authority, lifecycle, and proof
+
+`authority.example` and `lifecycle.example` are closed by
+`proof.example-red`, `proof.example-scope`, and `proof.example-parity`.
+
 ## Contract propagation matrix
 
 `contract.example` → `proof.example-red`.
@@ -68,6 +84,14 @@ No configuration field is added.
 ## Handoff / blockers
 
 - Pending example execution.
+
+## G1 redesign amendments
+
+```yaml
+apiVersion: acdd/architecture-amendments/v2
+kind: architecture-amendments
+items: []
+```
 
 ## ACDD inputs
 

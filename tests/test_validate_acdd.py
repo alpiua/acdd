@@ -104,6 +104,8 @@ def _architectural_recommendation() -> dict[str, object]:
         "prohibitedShortcuts": ["caller-local branch", "compatibility cast", "fallback"],
         "acceptanceProof": ["owner unit proof", "caller parity proof", "backend parity proof"],
         "evidence": ["services/callers.py:1"],
+        "userDecisionRequired": False,
+        "decisionOptions": [],
     }
 
 
@@ -244,6 +246,29 @@ def test_split_architecture_launchers_are_validated_and_legacy_remains_supported
             procedures, core, "task", adapter_path, ROOT, "adapter.gateProcedures"
         )
 
+
+def test_architecture_accepts_host_neutral_split_command_launchers() -> None:
+    core = MODULE.load_core(ROOT / "profiles" / "task" / "v1.yaml")
+    adapter_path = ROOT / "examples" / "planner" / ".acdd" / "task-adapter.yaml"
+    adapter = MODULE.load_adapter(adapter_path, "task", core, allowed_root=ROOT)
+    procedures = copy.deepcopy(adapter["gateProcedures"])
+    architecture = procedures["architecture/v1"]
+    architecture.pop("model")
+    architecture["runtime"] = "host-collaboration"
+    architecture["launchers"] = {
+        role: {
+            "kind": "command",
+            "target": "python3",
+            "arguments": ["bridge.py", "--role", role, "--session", "{sessionUuid}"],
+            "promptTransport": "final-argument",
+        }
+        for role in ("inspector", "coordinator")
+    }
+    architecture.pop("launcher")
+
+    MODULE._validate_executor_gate_procedures(
+        procedures, core, "task", adapter_path, ROOT, "adapter.gateProcedures"
+    )
 
 def test_reviewer_adapter_examples_bind_owner_roles_and_code_map_impact() -> None:
     task = MODULE.load_core(ROOT / "profiles" / "task" / "v1.yaml")
@@ -472,7 +497,7 @@ def test_fail_requires_complete_coordinator_recommendation_and_exact_finding_cov
 
     missing_owner = copy.deepcopy(result)
     del missing_owner["coordinator"]["reconciledRecommendations"][0]["canonicalOwner"]
-    with pytest.raises(ARCH.ArchitectureVerificationError, match="fields must exactly match"):
+    with pytest.raises(ARCH.ArchitectureVerificationError, match="decision-aware"):
         ARCH.validate_result(contract, core.architecture_verification_schema, missing_owner)
 
     missing_finding = copy.deepcopy(result)
@@ -484,6 +509,26 @@ def test_fail_requires_complete_coordinator_recommendation_and_exact_finding_cov
     raw_only["coordinator"]["reconciledRecommendations"] = []
     with pytest.raises(ARCH.ArchitectureVerificationError, match="architecturally complete"):
         ARCH.validate_result(contract, core.architecture_verification_schema, raw_only)
+
+    ambiguous = copy.deepcopy(result)
+    recommendation = ambiguous["coordinator"]["reconciledRecommendations"][0]
+    recommendation["userDecisionRequired"] = True
+    recommendation["decisionOptions"] = [
+        "update-task: choose the canonical boundary in the current task",
+        "create-linked-plan: extract the cross-phase redesign and link it to this task",
+    ]
+    ARCH.validate_result(contract, core.architecture_verification_schema, ambiguous)
+
+    incomplete_options = copy.deepcopy(ambiguous)
+    incomplete_options["coordinator"]["reconciledRecommendations"][0][
+        "decisionOptions"
+    ] = ["update-task: choose one interpretation"]
+    with pytest.raises(
+        ARCH.ArchitectureVerificationError, match="requires update-task"
+    ):
+        ARCH.validate_result(
+            contract, core.architecture_verification_schema, incomplete_options
+        )
 
 
 def test_capability_validation_accepts_equivalent_83b_runtime() -> None:

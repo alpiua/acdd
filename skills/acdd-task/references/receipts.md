@@ -1,7 +1,9 @@
 # Task receipt lifecycle
 
-Keep task inputs, gate evidence, fingerprints, receipts, and blockers in the
-bound task Markdown.
+Keep task inputs, ordinary gate evidence, fingerprints, receipts, and blockers in
+the bound task Markdown. G1 amendment runtime attempts and launcher telemetry are
+the sole exception: store them in adapter-owned external artifacts referenced by
+the amendment.
 
 1. Declare typed workspace-relative paths under `## ACDD inputs` with
    `apiVersion: acdd/inputs/v1`.
@@ -71,8 +73,9 @@ direct/alternate callers, contradictions, every adapter impact axis,
 matrix/proof mappings, and bounded findings. New architecture runner evidence
 also records adapter-normalized per-launch and aggregate usage when emitted by
 the launcher. Usage transport is adapter-specific; Pi `message_end.message.usage`
-is only one supported shape. Full transcripts and temporary partition files are
-not copied.
+is only one supported shape. G1 stores one bounded, secret-redacted JSONL
+transcript outside the task and binds its digest from the external amendment
+receipt. Temporary partition files are not copied.
 
 `architecture/v1: pass` requires complete inventory and decisions, complete
 caller coverage, no unresolved contradiction, all impact axes and matrix/proof
@@ -88,3 +91,18 @@ Record profile-only and authorized semantic changes as an inline
 fingerprint and IDs. A semantic change names rationale, authorization,
 before/after fingerprints, and removed IDs, then returns `matrix/v1`,
 `architecture/v1`, and every successor to nonterminal state.
+
+For new tasks, `## G0 architecture baseline` is the explicit semantic boundary
+and replaces the legacy scattered-section selection. Its fingerprint remains
+the G0 receipt authority throughout implementation.
+
+Post-G0 architectural decisions are append-only
+`acdd/architecture-amendments/v2` items under
+`## G1 redesign amendments`. Each item binds its own authority to the frozen G0
+fingerprint and carries terminal status, artifact paths and SHA-256 values,
+reviewed amendment fingerprint, and timestamp. The adapter-owned receipt binds
+task, amendment, G0, and amendment fingerprints; it holds attempts, verdict,
+findings, usage, verification, and the SHA-256 of one paired bounded redacted
+JSONL transcript. Editing an amendment
+invalidates only that amendment review. Pending amendments block terminal G1+
+receipts; they never invalidate the original matrix or architecture receipts.

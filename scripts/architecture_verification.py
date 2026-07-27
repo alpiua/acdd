@@ -111,15 +111,21 @@ def validate_partition_output(
     expected_fingerprint: str | None = None,
     expected_value_domain_ids: set[str] | frozenset[str] | None = None,
     expected_document: Path | None = None,
+    expected_task_paths: set[str] | frozenset[str] | None = None,
+    expected_coverage_paths: set[str] | frozenset[str] | None = None,
+    expected_repository_root: str | None = None,
 ) -> tuple[str, str, set[str]]:
     partition = _mapping(value, label)
     required = set(schema["partitionRequiredFields"])
     blocked = set(schema["partitionForbiddenFields"]) & set(partition)
     if blocked:
         raise ArchitectureVerificationError(f"{label} cannot contain {sorted(blocked)}")
-    if set(partition) != required:
+    if frozenset(partition) not in {
+        frozenset(required),
+        frozenset({*required, "contextReceipt"}),
+    }:
         raise ArchitectureVerificationError(
-            f"{label} fields must exactly match {sorted(required)}"
+            f"{label} fields must match the base or context-receipt partition contract"
         )
     partition_id = partition.get("id")
     if not isinstance(partition_id, str) or not partition_id.strip():
@@ -129,11 +135,52 @@ def validate_partition_output(
     fingerprint = _fingerprint(partition.get("inputFingerprint"), f"{label}.inputFingerprint")
     if expected_fingerprint is not None and fingerprint != expected_fingerprint:
         raise ArchitectureVerificationError(f"{label}.inputFingerprint must match the review input")
+    if expected_repository_root is not None:
+        repository_root = partition.get("discovery")
+        actual_root = repository_root.get("repositoryRoot") if isinstance(repository_root, dict) else None
+        try:
+            expected_path = Path(str(expected_repository_root)).resolve()
+            actual_path = Path(str(actual_root)) if actual_root is not None else None
+            if actual_path is not None and not actual_path.is_absolute():
+                actual_path = expected_path / actual_path
+            actual_root = actual_path.resolve().as_posix() if actual_path is not None else None
+            expected_root = expected_path.as_posix()
+        except (OSError, ValueError):
+            actual_root = None
+            expected_root = ""
+        if actual_root != expected_root:
+            raise ArchitectureVerificationError(
+                f"{label}.discovery.repositoryRoot must match the bound repository root"
+            )
     status = partition.get("status")
     if status not in {"pass", "fail"}:
         raise ArchitectureVerificationError(f"{label}.status must be pass or fail")
     if partition.get("isolated") is not True or partition.get("readOnly") is not True:
         raise ArchitectureVerificationError(f"{label} must be isolated and read-only")
+    if "contextReceipt" in partition:
+        context_receipt = _mapping(
+            partition.get("contextReceipt"), f"{label}.contextReceipt"
+        )
+        if set(context_receipt) != {
+            "manifestSha256",
+            "sourcesRead",
+            "retrievals",
+        }:
+            raise ArchitectureVerificationError(
+                f"{label}.contextReceipt has invalid fields"
+            )
+        _fingerprint(
+            context_receipt.get("manifestSha256"),
+            f"{label}.contextReceipt.manifestSha256",
+        )
+        _strings(
+            context_receipt.get("sourcesRead"),
+            f"{label}.contextReceipt.sourcesRead",
+        )
+        _strings(
+            context_receipt.get("retrievals"),
+            f"{label}.contextReceipt.retrievals",
+        )
     evidence = _strings(partition.get("evidence"), f"{label}.evidence")
     if any(re.fullmatch(r".+:[1-9][0-9]*", item) is None for item in evidence):
         raise ArchitectureVerificationError(f"{label}.evidence items must use path:line strings")
@@ -164,10 +211,18 @@ def validate_partition_output(
                 raise ArchitectureVerificationError(
                     f"{finding_label}.{field} items must use path:line strings"
                 )
+            if field == "codeEvidence" and expected_coverage_paths is not None:
+                for reference in refs:
+                    path = reference.rsplit(":", 1)[0].replace("\\", "/")
+                    if path not in expected_coverage_paths:
+                        raise ArchitectureVerificationError(
+                            f"{finding_label}.codeEvidence must reference bound coverage"
+                        )
         if expected_document is not None:
             task_refs = list(finding["taskEvidence"])
+            expected_paths = expected_task_paths or {expected_document.name}
             if any(
-                not item.rsplit(":", 1)[0].replace("\\", "/").endswith(expected_document.name)
+                item.rsplit(":", 1)[0].replace("\\", "/") not in expected_paths
                 for item in task_refs
             ):
                 raise ArchitectureVerificationError(
@@ -212,6 +267,11 @@ RECONCILED_RECOMMENDATION_FIELDS = {
     "acceptanceProof",
     "evidence",
 }
+RECONCILED_RECOMMENDATION_DECISION_FIELDS = {
+    *RECONCILED_RECOMMENDATION_FIELDS,
+    "userDecisionRequired",
+    "decisionOptions",
+}
 
 
 def _validate_reconciled_recommendations(
@@ -255,9 +315,12 @@ def _validate_reconciled_recommendations(
     for index, value in enumerate(raw):
         label = f"coordinator.reconciledRecommendations[{index}]"
         recommendation = _mapping(value, label)
-        if set(recommendation) != RECONCILED_RECOMMENDATION_FIELDS:
+        if frozenset(recommendation) not in {
+            frozenset(RECONCILED_RECOMMENDATION_FIELDS),
+            frozenset(RECONCILED_RECOMMENDATION_DECISION_FIELDS),
+        }:
             raise ArchitectureVerificationError(
-                f"{label} fields must exactly match {sorted(RECONCILED_RECOMMENDATION_FIELDS)}"
+                f"{label} fields must match the legacy or decision-aware recommendation contract"
             )
         recommendation_id = recommendation.get("id")
         if not isinstance(recommendation_id, str) or not recommendation_id.strip():
@@ -286,6 +349,31 @@ def _validate_reconciled_recommendations(
             ):
                 raise ArchitectureVerificationError(
                     f"{label}.evidence items must use path:line strings"
+                )
+        if "userDecisionRequired" in recommendation:
+            decision_required = recommendation.get("userDecisionRequired")
+            options = recommendation.get("decisionOptions")
+            if not isinstance(decision_required, bool):
+                raise ArchitectureVerificationError(
+                    f"{label}.userDecisionRequired must be boolean"
+                )
+            if not isinstance(options, list) or not all(
+                isinstance(item, str) and item.strip() for item in options
+            ):
+                raise ArchitectureVerificationError(
+                    f"{label}.decisionOptions must be a string list"
+                )
+            if decision_required and (
+                len(options) < 2
+                or not any(item.startswith("update-task:") for item in options)
+                or not any(item.startswith("create-linked-plan:") for item in options)
+            ):
+                raise ArchitectureVerificationError(
+                    f"{label}: ambiguous architecture requires update-task and create-linked-plan options"
+                )
+            if not decision_required and options:
+                raise ArchitectureVerificationError(
+                    f"{label}: decisionOptions must be empty when no user decision is required"
                 )
         recommendations.append(recommendation)
     if len(ids) != len(set(ids)):
@@ -481,12 +569,18 @@ def validate_contract(
         raise ArchitectureVerificationError("contract inspectorPolicy must preserve the schema")
     contract_coordinator_policy = contract.get("coordinatorPolicy")
     schema_coordinator_policy = _mapping(schema.get("coordinatorPolicy"), "schema.coordinatorPolicy")
-    legacy_coordinator_policy = {
-        key: value
-        for key, value in schema_coordinator_policy.items()
-        if key != "allowResolvedFindings"
-    }
-    if contract_coordinator_policy != schema_coordinator_policy and contract_coordinator_policy != legacy_coordinator_policy:
+    compatible_coordinator_policies = [
+        {
+            key: value
+            for key, value in schema_coordinator_policy.items()
+            if key not in omitted
+        }
+        for omitted in (
+            frozenset(),
+            frozenset({"allowResolvedFindings"}),
+        )
+    ]
+    if contract_coordinator_policy not in compatible_coordinator_policies:
         raise ArchitectureVerificationError("contract coordinatorPolicy must preserve the schema")
     if (
         "findingContract" in contract
@@ -531,6 +625,10 @@ def validate_result(
     result: dict[str, Any],
     *,
     expected_value_domain_ids: set[str] | None = None,
+    expected_document: Path | None = None,
+    expected_repository_root: str | None = None,
+    expected_task_paths: set[str] | frozenset[str] | None = None,
+    expected_coverage_paths: set[str] | frozenset[str] | None = None,
 ) -> dict[str, Any]:
     validate_contract(contract, schema)
     missing_result = set(schema["resultRequiredFields"]) - set(result)
@@ -589,6 +687,10 @@ def validate_result(
             label=f"result.partitions[{index}]",
             expected_fingerprint=fingerprint,
             expected_value_domain_ids=expected_domains,
+            expected_document=expected_document,
+            expected_task_paths=expected_task_paths,
+            expected_coverage_paths=expected_coverage_paths,
+            expected_repository_root=expected_repository_root,
         )
         actual_ids.append(partition_id)
         statuses.append(status)
