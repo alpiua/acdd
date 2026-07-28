@@ -9,7 +9,7 @@ Host-neutral Architecture Contract-Driven Development plugin.
 | Understand the methodology and G0–G3 | [`README.md`](README.md) |
 | Deliver one bound task | [`acdd-task`](skills/acdd-task/SKILL.md) + [`profiles/task/v1.yaml`](profiles/task/v1.yaml) |
 | Create or improve a planning set | [`acdd-plan`](skills/acdd-plan/SKILL.md) + [`profiles/plan/v1.yaml`](profiles/plan/v1.yaml) |
-| Create, install, or run an owner adapter | [`Install.md`](Install.md) |
+| Create, install, or run an owner adapter | [`INSTALL.md`](INSTALL.md) |
 | Copy an adapter or document shape | [`examples/README.md`](examples/README.md) |
 | Inspect core contracts | [`contracts/`](contracts/) and [`routing/`](routing/) |
 

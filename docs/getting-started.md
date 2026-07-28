@@ -31,7 +31,7 @@ Assume a task adds a field to an API response.
 7. Record current receipts and close only with no blockers.
 
 Validate the bound document with the explicit command from
-[Install.md](../Install.md). Copy a runnable task shape from
+[INSTALL.md](../INSTALL.md). Copy a runnable task shape from
 [examples/task/TASK.md](../examples/task/TASK.md).
 
 ## Why the gates exist
@@ -42,7 +42,7 @@ Validate the bound document with the explicit command from
 | `architecture/v1` | Implementation starts from an incorrect owner or incomplete production path. |
 | `red/v1` | A passing test is mistaken for proof that the requested gap existed. |
 | `runtime/v1` | A helper works while the real caller remains broken. |
-| `parity/v1` | SQLite works while PostgreSQL, generated clients, or alternate forms fail. |
+| `parity/v1` | One applicable implementation, generated surface, or alternate path works while another fails. |
 | `security/v1` | Authorization, tenant, payload, or external-effect failures are missed. |
 | `release/v1` | Focused tests pass while the repository gate fails. |
 | `review/v1` | The author closes work without independent challenge. |

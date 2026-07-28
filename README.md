@@ -1,283 +1,334 @@
 # ACDD Workflow
 
-ACDD (**Architecture Contract-Driven Development**) is a methodology for
-turning an intended change into an explicit architecture contract, proving that
-contract against the real system, and only then implementing and releasing it.
-This repository packages that methodology as host-neutral profiles, contracts,
-adapters, validators, skills, and runnable examples.
+ACDD means **Architecture Contract-Driven Development**.
 
-New to ACDD? Start with the [human walkthrough](docs/getting-started.md).
-Contract authors should also read the [versioning policy](docs/versioning.md).
-For the current runner optimization backlog, see
-[`docs/optimization.md`](docs/optimization.md).
+It is a delivery method
+for turning an intended change into a bounded architecture contract, checking
+that contract against the live system, implementing only the approved scope,
+and closing the work with current executable evidence. ACDD does not replace a
+project's tests, release process, issue tracker, or review tools. It connects
+them through host-neutral profiles and repository-owned adapters so that every
+PASS says what was checked, by whom, against which inputs, and with which result.
 
-ACDD is designed for work where “the tests pass” is not enough. A change must
-also have a known owner, production caller, authority boundary, failure
-behavior, propagation path, and current evidence. The workflow makes those
-claims explicit and invalidates them when their inputs change.
+The short version is:
 
-## The methodology
+```text
+Intent
+  → G0: contract and architecture
+  → G1: RED, implementation, runtime, and parity
+  → G2: security
+  → G3: release, review, and handoff
+```
 
-ACDD follows five principles:
+Receipts carry input fingerprints. When relevant source, tests, configuration,
+dependencies, environment, or accepted findings change, affected receipts become
+stale and the dependent gates run again. Missing infrastructure is `blocked`, not
+PASS, and a reviewer may expose missing scope but cannot authorize it.
 
-1. **Architecture before mutation.** Before implementation, identify the real
-   owner, caller, contract, data/configuration path, alternate paths, security
-   boundary, and downstream impact.
-2. **One bounded contract.** The task describes the exact behavior to add or
-   change, its permitted scope, and the proof that will demonstrate it. Review
-   cannot silently enlarge that scope.
-3. **Evidence, not assertions.** Each transition is backed by typed evidence:
-   source discovery, an expected failing proof, runtime execution, negative
-   paths, security checks, repository gates, or independent review.
-4. **Evidence expires.** Receipts carry SHA-256 fingerprints of the inputs that
-   made them true. A relevant source, test, configuration, dependency,
-   environment, generated artifact, or accepted finding change makes the
-   receipt stale and invalidates dependent stages.
-5. **Independent challenge.** Architecture and closure reviews run outside the
-   authoring path. Read-only inspectors collect bounded evidence; one
-   coordinator owns the verdict. A reviewer can find a contradiction but cannot
-   grant implementation authority.
+ACDD provides two workflows:
 
-The methodology has two workflows:
-
-| Workflow | Purpose | Profile |
+| Workflow | Use it for | Profile |
 |---|---|---|
-| **Task delivery** | Deliver one already-bound implementation task | [`acdd/task/v1`](profiles/task/v1.yaml) |
-| **Planning** | Create or improve one primary plan and its bounded planning set | [`acdd/plan/v1`](profiles/plan/v1.yaml) |
+| Task delivery | Deliver one already-bound implementation task | [`acdd/task/v1`](profiles/task/v1.yaml) |
+| Planning | Create or improve one bounded planning set and inactive task candidates | [`acdd/plan/v1`](profiles/plan/v1.yaml) |
 
-Planning preserves `roadmap → phase → milestone → task`. A plan is a separate
-artifact bound to one of those owners and may span phases. Planning creates
-inactive task candidates; a later task workflow activates and delivers one of
-them.
+Examples: [`bound task`](examples/task/TASK.md) and
+[`self-contained planning set`](examples/simple-plan/).
 
-## Task stages: G0–G3
+These are workflow profiles, not hierarchy levels. `roadmap`, `phase`,
+`milestone`, and `task` are planning artifacts inside `acdd/plan/v1`:
+`roadmap-shape/v1` validates roadmap and phase structure,
+`milestone-shape/v1` validates milestones and their task membership, and
+`decomposition/v1` produces inactive task candidates. A selected task later
+moves to the separate `acdd/task/v1` delivery workflow.
 
-G0–G3 are the human-facing stages of ACDD task delivery. Internally they are
-implemented by nine ordered receipt gates. A stage is complete only when every
-receipt in that stage is current for the same contract.
+## Task delivery: G0–G3
 
-### G0 — architecture and execution contract
+Task delivery has four human-facing stages implemented by nine ordered gates.
+Every gate reads the same bound task, uses the adapters selected for that owner,
+records typed evidence, and issues a receipt for the current fingerprint. A later
+gate never compensates for a missing, blocked, failed, or stale predecessor.
 
-**Internal gates:** `matrix/v1`, `architecture/v1`.
+### G0 — decide what may be built
 
-G0 answers “what exactly are we allowed to build?” before implementation code
-changes. It records:
+G0 completes before implementation. It identifies the production caller, the
+canonical owner, public and persisted contracts, authority and identity,
+lifecycle and failure behavior, alternate paths, affected domains, proof IDs,
+and explicit non-goals.
 
-- affected domains, owners, propagation, mitigation, authorization, and proofs;
-- the production trigger and caller;
-- the canonical contract and implementation owner;
-- data, storage, configuration, and generated-artifact paths;
-- authority, identity, tenant, lifecycle, and external-effect boundaries;
-- direct and alternate callers;
-- expected success and fail-closed behavior;
-- decision IDs and proof IDs;
-- explicit out-of-scope boundaries and blockers.
+| Gate | What it checks | Adapters and execution |
+|---|---|---|
+| `matrix/v1` | Every affected domain has an owner, propagation path, mitigation, authorization, proof, or explicit blocker. | Reads `task + implementation`; the `task` adapter executes and updates the task. |
+| `architecture/v1` | The proposed contract is coherent with live source, callers, dependencies, authority, lifecycle, storage, compatibility paths, and proof obligations. | Reads `task + implementation`; the `task` adapter launches four read-only inspectors and one coordinator. |
 
-New tasks freeze this authority explicitly under
-`## G0 architecture baseline`. An independent architecture verification then
-checks that section against live source and dependencies. The runner binds one
-candidate from the G0 baseline plus one snapshot of declared implementation inputs under the allowed
-`services/`, `packages/`, `core/`, and `extensions/` roots. G0 passes only when
-all four read-only partitions terminate and validate, every finding is either
-reconciled into one architectural remediation batch or explicitly resolved by
-the coordinator against the frozen task authority, every impact axis is mapped,
-and the coordinator returns `PASS` for the current fingerprint.
+Examples: [`task adapter`](examples/planner/.acdd/task-adapter.yaml) and
+[`architecture-review adapter`](examples/reviewers/.acdd/task-adapter.yaml).
 
-Existing active tasks keep their already-approved legacy semantic-section layout as
-the frozen G0 baseline until terminal completion. Do not copy that authority into a
-new heading merely to adopt this document shape: the copy would be a new semantic
-candidate. A G1 amendment binds directly to the task's recorded G0 semantic
-fingerprint and reviews the legacy baseline plus that amendment.
+New tasks freeze G0 authority under `## G0 architecture baseline`. Existing active
+tasks keep the semantic baseline they were approved with; copying it into a new
+heading would create a different candidate. If implementation later exposes a
+missing architectural decision, add a bounded `## G1 redesign amendments` item
+and review that amendment instead of rewriting G0.
 
-The code is a read-only feasibility and impact baseline during G0; unfinished
-legacy implementation is not itself a failure. A partition `FAIL` must identify
-a typed defect in the task candidate, cite both task and code evidence, and name
-the required task-authority change. Product implementation remains blocked until
-the coordinator produces a terminal `PASS`.
+#### How architecture verification works
 
-A failed review is not a reason to “continue carefully.” Update the task
-contract or evidence, produce a new fingerprint, and rerun only after a real
-change. Re-running an unchanged failed fingerprint is forbidden. Before each architecture launch, run `scripts/check_architecture_admission.py` (clean/candidate baseline, unchanged-FAIL ban, material attempt cap). After accepted changes, use `scripts/compute_invalidation.py` for the targeted dependent-gate rerun set; unknown classes fail closed.
+The architecture runner freezes one candidate fingerprint and one declared code
+snapshot, then launches exactly four independent partitions:
 
-### G1 — RED, runtime, and parity
+| Partition | Primary question |
+|---|---|
+| `contract` | Is there one canonical owner, type, serializer, transport, normalization path, and persisted-contract meaning? |
+| `authority` | Are identity, authorization, tenant/scope boundaries, validation order, and negative proofs explicit and fail-closed? |
+| `callers` | Are the production caller, direct and alternate entry points, retries, caches, projections, and downstream impact covered? |
+| `persistence` | Are lifecycle, failure, rollback, cleanup, backend parity, revisions, migrations, and terminal outcomes coherent? |
 
-**Internal gates:** `red/v1`, `runtime/v1`, `parity/v1`.
+All four inspectors receive the same fingerprint, remain read-only, and return
+bounded evidence and typed candidate-design findings. They cannot write the task,
+issue a receipt, or decide the final verdict. Only after all four outputs validate
+does a tool-free coordinator reconcile the findings and return `PASS` or `FAIL`.
+A transport or schema failure is `BLOCKED` and preserves completed outputs.
 
-G1 proves that the bounded contract is implemented:
+The canonical architecture contract requires the union of the partitions to
+cover all guidance axes: owner, production path, contract propagation,
+authority, lifecycle/failure/cleanup, alternate paths, persisted parity, impact,
+negative proof, contradictions, normalization, authorization before selection,
+terminal outcome truth, and terminal projection truth. Full definitions live in
+[`architecture.md`](skills/acdd-task/references/architecture.md); the executable
+shape is [`contracts/architecture-verification/v1.yaml`](contracts/architecture-verification/v1.yaml).
 
-If implementation discovery requires an architectural decision absent from G0,
-append it under `## G1 redesign amendments` instead of rewriting the baseline.
-Each amendment binds its own fingerprint and gate-scoped code coverage to
-frozen G0 and receives a supplemental four-partition architecture review.
-G0 and every amendment use separate external coverage manifests; an amendment
-selects only its declared code paths through `implementationPaths`. Pending amendments block
-terminal G1 and later receipts; passed amendments do not invalidate or replace
-the original G0 receipts. The task stores amendment authority and a stable
-receipt pointer only; attempts, findings, normalized usage, verification, and
-the bounded transcript digest live in the adapter-owned external receipt.
-Supplemental admission validates the selected pending amendment, its frozen-G0
-binding, and historical receipt/evidence integrity. It does not require existing
-receipt fingerprints or historical migration records to match the current working
-tree; normal delivery validation and terminal closure continue to require that
-freshness.
+Each named proof belongs in one compact `Proof obligation mapping` table:
 
-1. preserve the smallest expected failing proof of the declared gap;
-2. implement only the G0-approved contract;
-3. run the real production caller and applicable failure path;
-4. prove parity across every applicable dimension: behavior, failures,
-   authorization, lifecycle, owner path, configuration, storage/backend, and
-   generated/public surfaces.
+| Proof ID | Boundary | Required scenarios | Execution evidence |
+|---|---|---|---|
+| `proof.concurrent-write` | persistence owner | one winner, typed loser, no residue | `pending` |
 
-A unit test of a helper is not a production-path proof. A compatibility shim is
-not parity unless the contract explicitly authorizes it.
+`pending` is valid while implementation is underway. Terminal `review/v1` and
+`handoff/v1` require executable evidence. The reviewer verifies that the named
+test actually covers the declared boundary, backend, sequential/concurrent mode,
+cardinality, terminal outcomes, and forbidden effects. A test name or Code Map
+relationship alone is not proof.
 
-### G2 — final security
+Before each architecture launch, run
+[`check_architecture_admission.py`](scripts/check_architecture_admission.py).
+It enforces the candidate baseline, rejects an unchanged previous FAIL, and caps
+material retries. After a FAIL, rerun only after a real change produces a new
+current fingerprint. The full runner is
+[`run_architecture.py`](scripts/run_architecture.py); its concrete launcher,
+working directory, model, tools, and artifact storage come from the task adapter.
 
-**Internal gate:** `security/v1`.
+### G1 — prove the implementation
 
-G2 checks the final implementation rather than the intended design. It covers
-all applicable security contours: authorization, identity and tenant isolation,
-untrusted input, path and secret handling, payload exposure, lifecycle and
-audit behavior, external effects, and fail-closed denial. Inapplicable contours
-must have an explicit rationale; they are not silently skipped.
+G1 starts only after G0 passes for the current semantic candidate.
 
-### G3 — release, independent review, and handoff
+| Gate | What it checks | Adapters and execution |
+|---|---|---|
+| `red/v1` | The smallest expected failing proof demonstrates the approved gap before implementation. Structural/import failures do not count as product RED evidence. | Reads `task + implementation`; the `implementation` adapter runs the proof. |
+| `runtime/v1` | The real production caller and applicable failure path produce the required terminal behavior. | The `implementation` adapter runs the owner command in the implementation repository. |
+| `parity/v1` | Behavior, faults, authorization, lifecycle, configuration, owner path, storage/backend, generated surfaces, and alternate paths agree wherever applicable. | The `implementation` adapter selects real parity commands and records applicability. |
 
-**Internal gates:** `release/v1`, `review/v1`, `handoff/v1`.
+Example: [`implementation adapter`](examples/codebase/.acdd/implementation-adapter.yaml).
 
-G3 runs the exact repository-owned release gate after implementation settles,
-then independently reviews the current source, tests, configuration, and
-release evidence. Accepted findings change the input fingerprint and require
-rerunning every affected earlier gate before another closure review.
+Evidence must exercise the behavior, execution conditions, and affected
+implementations named by the claim. When a parity dimension does not apply,
+record the bounded inapplicability rationale required by the profile.
 
-The handoff records changed artifacts, current receipts, residual risk, and
-blockers. The task closes only when every required receipt is terminal and
-current, the final review passes, and blockers are empty.
+### G2 — check the final security boundary
 
-## Strict transitions, fingerprints, and subagents
+| Gate | What it checks | Adapters and execution |
+|---|---|---|
+| `security/v1` | Final authorization, identity and tenant isolation, untrusted input, paths and secrets, payload exposure, lifecycle/audit behavior, external effects, and fail-closed denial. | Reads `task + implementation`; the `implementation` adapter runs the repository's security proofs and structural checks. |
 
-ACDD is fail-closed:
+Example: [`implementation adapter`](examples/codebase/.acdd/implementation-adapter.yaml).
 
-- gates execute in profile queue order;
-- no later receipt compensates for a missing or stale earlier receipt;
-- each non-pending receipt references typed inline evidence;
-- each receipt carries `sha256:<64 hex characters>` and a UTC timestamp;
-- changing an input listed by the gate policy invalidates that gate and every
-  dependent successor;
-- unavailable infrastructure is recorded as blocked, never converted to pass;
-- review findings do not authorize scope expansion.
+G2 reviews the implemented system, not the intended design. Every applicable
+security contour needs positive and negative evidence; an inapplicable contour
+needs an explicit reason.
 
-Architecture/v1 launches exactly four parallel **read-only
-inspectors** through the adapter's inspector launcher. Inspectors share one
-fingerprint, cannot write the task, cannot issue receipts, and cannot return the
-authoritative verdict. The coordinator launcher starts only after all four
-validated outputs exist; it receives no tools and reconciles only the frozen task
-authority, partition outputs, findings, and persisted-contract mappings. The
-coordinator alone returns `PASS` or `FAIL`. A schema or transport failure is
-`BLOCKED`, preserves completed partition outputs and a bounded redacted raw response
-(including plain-text `FAIL` content), and does not consume a material FAIL attempt.
+### G3 — release, challenge, and hand off
 
-Each launcher may emit structured usage in its own transport shape. The runner
-normalizes supported usage into bounded per-launch and aggregate input, output,
-cache-read, cache-write, total-token, and cost fields. G1 keeps one bounded,
-secret-redacted JSONL transcript outside task Markdown and binds its SHA-256 from
-the external amendment receipt. Temporary partition files remain runtime data.
+| Gate | What it checks | Adapters and execution |
+|---|---|---|
+| `release/v1` | The exact repository-owned quality gate succeeds on the settled implementation. | The `implementation` adapter runs the real release command. |
+| `review/v1` | An independent reviewer checks current source, tests, configuration, runtime evidence, proof mappings, security, compatibility, and residual risk against the approved contract. | The `implementation` adapter owns the terminal review launcher. |
+| `handoff/v1` | All required receipts are current, accepted findings have been propagated, blockers are empty, and changed artifacts are recorded. | The `task` adapter writes the final checkpoint. |
 
-Terminal implementation or plan review is a separate subagent operation chosen
-by the owner adapter. It runs after the relevant evidence stabilizes. The
-runtime name is provenance; the adapter must bind an actual command or tool
-launcher and a strict tool envelope.
+Examples: [`implementation adapter`](examples/codebase/.acdd/implementation-adapter.yaml),
+[`terminal-review adapter`](examples/reviewers/.acdd/implementation-adapter.yaml), and
+[`task handoff adapter`](examples/planner/.acdd/task-adapter.yaml).
 
-## Install and connect the plugin
+Accepted review findings change the evidence set. Apply authorized fixes, compute
+the affected rerun set with
+[`compute_invalidation.py`](scripts/compute_invalidation.py), rerun those gates,
+and review the new fingerprint. After the terminal report, the workflow-learning
+record may propose future guidance improvements; it does not rewrite the reviewed
+verdict or invalidate older snapshots by itself.
 
-### 1. Put the plugin in the workspace
+## Planning workflow
 
-Use one shared checkout for all owner repositories:
+Planning uses one `plan` adapter. It creates or improves a primary plan and a
+bounded set of roadmap, phase, milestone, and inactive task artifacts; it does
+not implement those tasks.
+
+| Gate | What it checks |
+|---|---|
+| `intent/v1` | Outcome, owner binding, scope, non-goals, planning set, and lifecycle status. |
+| `evidence/v1` | Live code, documentation, prior decisions, current planning state, and contradictions. |
+| `architecture/v1` | Owners, production paths, authority, lifecycle, dependencies, security, impact, and caller burden across the planning set, followed by independent plan verification. |
+| `plan-shape/v1` | Primary-plan metadata, phase span, decisions, dependencies, impact, promotion rules, and blockers. |
+| `roadmap-shape/v1` | Roadmap/phase membership, ordering, dependencies, impact propagation, backlinks, and execution claims. |
+| `milestone-shape/v1` | Milestone architecture slices, task membership, gates, backlinks, impact, and evidence-bound closure. |
+| `decomposition/v1` | Executable, inactive, milestone-bound task drafts with owners, prerequisites, decisions, and expected evidence. |
+| `review/v1` | Independent challenge of the complete planning set against live evidence. |
+| `publish/v1` | Links, metadata, shape, drift, and adapter-owned derived-state refresh. |
+| `handoff/v1` | Current receipts, blockers, changed artifacts, and task-flow candidates. |
+
+Start from [`examples/planner/.acdd/plan-adapter.yaml`](examples/planner/.acdd/plan-adapter.yaml),
+[`examples/simple-plan/`](examples/simple-plan/), or an external projection such
+as [`examples/linear/.acdd/`](examples/linear/.acdd/) and
+[`examples/jira/.acdd/`](examples/jira/.acdd/).
+
+## How gates run
+
+ACDD separates the universal method from repository-specific execution:
+
+1. Select a profile and bound Markdown document.
+2. Load every required owner adapter.
+3. Run `validate_acdd.py` to validate profile, routing, capabilities, adapter
+   authority, document shape, evidence, fingerprints, receipts, and gate order.
+4. Resolve the current gate through the profile routing table.
+5. Collect context from all routed adapters, but execute only through that
+   gate's `executorAdapter`.
+6. Run the adapter's procedure or launcher from its declared owner directory.
+7. Record bounded typed evidence and a receipt for the computed fingerprint.
+8. Validate again before advancing.
+
+`validate_acdd.py` validates state; it does not invent evidence or run every
+project command automatically. Runtime, security, release, and review commands
+belong to the repository adapters. Architecture is the exception with a generic
+orchestrator: `run_architecture.py` executes the launcher bindings supplied by
+the task adapter.
+
+Launchers are explicit. `runtime` is provenance, while `launcher.target` is the
+actual command or registered tool. Architecture uses separate inspector and
+coordinator launchers. Terminal review uses the launcher selected by the
+implementation or plan adapter. See
+[`examples/reviewers/`](examples/reviewers/) for complete bindings.
+
+## Adapter system
+
+An adapter translates one repository owner's real paths, commands, tools, and
+policies into canonical ACDD capabilities. It may strengthen a gate, but it
+cannot remove, reorder, or weaken profile requirements.
+
+| Role | Place it in | Responsibility |
+|---|---|---|
+| `task` | Task/backlog repository: `.acdd/task-adapter.yaml` | Task state, impact axes, G0 execution, receipts, and handoff. |
+| `implementation` | Source/runtime repository: `.acdd/implementation-adapter.yaml` | Source discovery, RED/runtime/parity/security/release commands, and terminal code review. |
+| `plan` | Planning repository: `.acdd/plan-adapter.yaml` | Planning authority, hierarchy validation, architecture review, publication, and planning handoff. |
+| `audit` | Report repository: `.acdd/audit-adapter.yaml` | Optional publication of one selected terminal report; it owns no workflow gate. |
+
+A task workflow composes `task + implementation` and may add `audit`. A planning
+workflow uses `plan` and may add `audit`. Each route has exactly one executor;
+other adapters contribute authority and evidence without issuing that gate's
+receipt.
+
+Create an adapter by copying the closest bundle from
+[`examples/README.md`](examples/README.md), then replace every example path,
+command, launcher, model, tool, authority, impact axis, and external mapping with
+a live owner value. Keep the adapter beside its owner, resolve relative
+procedures/resources/scripts from the adapter directory, and keep every resolved
+path inside the allowed workspace root.
+
+The minimum shape is:
+
+```yaml
+apiVersion: acdd/adapter/v1
+kind: adapter
+id: owner-purpose/v1
+role: implementation
+provides: [source_map, structural_search, run_gate, independent_review, review_execution]
+procedure:
+  - Run the repository-owned procedure.
+authority:
+  source: "src/**"
+  commands: [./scripts/quality-gate]
+inputAuthorities:
+  source: ["src/**"]
+  test: ["tests/**"]
+constraints:
+  - Fail closed when required infrastructure is unavailable.
+```
+
+Capability names and exact required fields come from
+[`contracts/adapter/v1.yaml`](contracts/adapter/v1.yaml),
+[`contracts/task/v1.yaml`](contracts/task/v1.yaml), and
+[`contracts/plan/v1.yaml`](contracts/plan/v1.yaml). Detailed launcher, artifact,
+write-policy, receipt, and external-mapping configuration belongs in
+[`INSTALL.md`](INSTALL.md).
+
+## How the workflow package is organized
+
+The package has declarative contracts at the top and small executable layers
+under `scripts/`:
+
+```text
+profiles/   ordered task and planning gates
+contracts/  capabilities, adapters, receipts, architecture, learning, plan shapes
+routing/    participating adapters and one executor per gate
+skills/     canonical agent procedures and detailed gate guidance
+examples/   runnable owner adapters and bound documents
+scripts/    validation, fingerprints, orchestration, evidence, and diagnostics
+```
+
+The most important scripts are:
+
+| Script | Purpose |
+|---|---|
+| [`validate_acdd.py`](scripts/validate_acdd.py) | Validate one profile, its adapters, the bound document, evidence, receipts, routing, and closure state. |
+| [`run_architecture.py`](scripts/run_architecture.py) | Freeze and execute the four-partition architecture review through adapter launchers. |
+| [`check_architecture_admission.py`](scripts/check_architecture_admission.py) | Decide whether a G0 or amendment architecture launch is admitted. |
+| [`record_fingerprint.py`](scripts/record_fingerprint.py) | Generate the canonical semantic fingerprint block. |
+| [`record_proof.py`](scripts/record_proof.py) | Run or record command/proof-bundle evidence with redaction and the current fingerprint. |
+| [`compute_invalidation.py`](scripts/compute_invalidation.py) | Compute the smallest ordered gate rerun set after typed input changes. |
+| [`check_gate_tool.py`](scripts/check_gate_tool.py) | Reject a tool call outside the current gate's adapter envelope. |
+| [`check_structural_invariants.py`](scripts/check_structural_invariants.py) | Run adapter-supplied AST structural rules. |
+| [`check_simple_plan.py`](scripts/check_simple_plan.py) | Validate the optional self-contained plan shape. |
+| [`acdd_metrics.py`](scripts/acdd_metrics.py) | Summarize receipt status from selected Markdown documents. |
+| [`check_markdown_links.py`](scripts/check_markdown_links.py) | Validate repository-local Markdown links. |
+
+Modules such as `acdd_document.py`, `acdd_fingerprint.py`,
+`architecture_verification.py`, `architecture_governor.py`, `invalidation.py`,
+`value_domains.py`, and `workflow_learning.py` implement shared validation logic;
+they are imported by the command-line scripts rather than used as the normal
+human entry point.
+
+## Install and run
+
+Keep the plugin in a shared workspace with the repositories that own planning,
+implementation, and optional audit publication:
 
 ```text
 workspace/
-├── planner/                   # optional task/plan owner
-├── product/                   # implementation owner
-├── audit/                     # optional report publisher
-└── plugins/
-    └── acdd-workflow/         # this repository
+├── plugins/acdd-workflow/
+├── planner/.acdd/task-adapter.yaml
+├── planner/.acdd/plan-adapter.yaml
+├── product/.acdd/implementation-adapter.yaml
+└── audit/.acdd/audit-adapter.yaml
 ```
 
+Install the validator dependencies and verify the plugin:
+
 ```bash
-cd workspace
-git clone <acdd-workflow-url> plugins/acdd-workflow
-cd plugins/acdd-workflow
+cd workspace/plugins/acdd-workflow
 python3 -m pip install --upgrade PyYAML pytest
 python3 -m pytest tests -q
 python3 scripts/check_markdown_links.py --root .
 ```
 
-There is no daemon or global `acdd` executable. Run
-`scripts/validate_acdd.py` from the plugin checkout with explicit owner paths.
-
-### 2. Create `.acdd/` in each owner repository
-
-Keep owner-specific paths, commands, tools, and policy beside their owner:
-
-```text
-planner/.acdd/
-├── task-adapter.yaml
-└── plan-adapter.yaml
-
-product/.acdd/
-└── implementation-adapter.yaml
-
-audit/.acdd/
-└── audit-adapter.yaml
-```
-
-Copy the nearest example and replace every example authority, path, command,
-and tool with a real owner-owned value:
-
-| Need | Starting point |
-|---|---|
-| Planner task and plan ownership | [`examples/planner/.acdd/`](examples/planner/.acdd/) |
-| Code/test/configuration ownership | [`examples/codebase/.acdd/`](examples/codebase/.acdd/) |
-| Self-contained milestone plan | [`examples/simple-plan/`](examples/simple-plan/) |
-| Linear projection | [`examples/linear/.acdd/`](examples/linear/.acdd/) |
-| Jira projection | [`examples/jira/.acdd/`](examples/jira/.acdd/) |
-| Review launchers and impact discovery | [`examples/reviewers/.acdd/`](examples/reviewers/.acdd/) |
-| Optional report publication | [`examples/audit/.acdd/`](examples/audit/.acdd/) |
-| Bound task Markdown | [`examples/task/TASK.md`](examples/task/TASK.md) |
-
-### 3. Add a workspace route to `AGENTS.md`
-
-Place routing at the nearest workspace or repository owner. Adjust paths to the
-actual layout:
-
-```md
-## ACDD workflow
-
-- Use `plugins/acdd-workflow/profiles/task/v1.yaml` for one bound
-  implementation task and `profiles/plan/v1.yaml` for one bounded planning set.
-- Load the owner adapters from each repository's `.acdd/` directory before
-  executing a gate. Resolve adapter-relative procedures and resources from the
-  adapter file, not from the session CWD.
-- Run `plugins/acdd-workflow/scripts/validate_acdd.py` with explicit
-  `--workspace-root`, `--document`, and `--adapter role=path` arguments.
-- Complete G0 before implementation; preserve RED evidence in G1; run final
-  security in G2; close only through release, independent review, and handoff
-  in G3.
-- Keep typed inputs, ordinary evidence, fingerprints, receipts, and blockers
-  inline in the bound task or primary plan. G1 amendment attempts and launcher
-  telemetry live only in the adapter-owned receipt and transcript. Never
-  manufacture a receipt.
-```
-
-Use [`Install.md`](Install.md) when creating, installing, validating, or running
-owner adapters. [`AGENTS.md`](AGENTS.md) remains a short repository map.
-
-### 4. Validate the composition
-
-Task delivery needs `task` and `implementation` adapters:
+There is no daemon and no global `acdd` executable. Validate a task composition
+from the plugin checkout:
 
 ```bash
-cd workspace/plugins/acdd-workflow
 python3 scripts/validate_acdd.py \
   --profile profiles/task/v1.yaml \
   --workspace-root ../.. \
@@ -286,7 +337,7 @@ python3 scripts/validate_acdd.py \
   --adapter implementation=product/.acdd/implementation-adapter.yaml
 ```
 
-Planning needs one `plan` adapter:
+Validate a planning composition:
 
 ```bash
 python3 scripts/validate_acdd.py \
@@ -296,231 +347,68 @@ python3 scripts/validate_acdd.py \
   --adapter plan=planner/.acdd/plan-adapter.yaml
 ```
 
-Use `--settings workspace-settings.json` when you also want validation to prove
-that each gate's named skill resolves exactly once. The settings shape is:
+See [`INSTALL.md`](INSTALL.md) for adapter creation, launcher configuration,
+architecture execution, evidence recording, validation recipes, and owner
+`AGENTS.md` integration.
 
-```json
-{"skills": ["plugins/acdd-workflow/skills", "planner/.agents/skills"]}
+### Tell an agent to use ACDD
+
+Put a short route in the workspace or owner `AGENTS.md`:
+
+```md
+## ACDD
+
+- Task delivery → `plugins/acdd-workflow/skills/acdd-task/SKILL.md` with
+  `plugins/acdd-workflow/profiles/task/v1.yaml`, the task owner's
+  `.acdd/task-adapter.yaml`, and the source owner's
+  `.acdd/implementation-adapter.yaml`.
+- Planning → `plugins/acdd-workflow/skills/acdd-plan/SKILL.md` with
+  `plugins/acdd-workflow/profiles/plan/v1.yaml` and the planning owner's
+  `.acdd/plan-adapter.yaml`.
+- Validate the composition before executing a gate. Follow profile order, use
+  the routed executor adapter, keep evidence and receipts current, and stop on
+  blocked or failed gates.
 ```
 
-## Adapter levels and composition
+Then give the agent a concrete request:
 
-Adapters are owner boundaries, not generic configuration fragments. Four roles
-exist:
-
-| Role | Level | Responsibilities |
-|---|---|---|
-| `task` | Task/backlog owner | Read and update one task, classify impact, own G0 coordination and final handoff |
-| `implementation` | Repository/runtime owner | Map source/docs/structure, run RED/runtime/security/release gates, own terminal code review |
-| `plan` | Planning-set owner | Reconcile evidence, model architecture/impact, validate hierarchy and decomposition, publish and review plans |
-| `audit` | Optional publication owner | Publish an explicitly selected terminal report; never own a workflow gate |
-
-A task flow composes `task + implementation` (and optionally `audit`). A plan
-flow uses `plan` (and optionally `audit`). Each route names exactly one
-`executorAdapter`; other routed adapters contribute authority and capabilities
-but do not execute or issue that gate's receipt.
-
-External systems do not redefine ACDD. An adapter maps canonical owner kinds to
-its platform, for example Linear `Initiative → Project → Project Milestone →
-Issue` or Jira `Initiative → Epic → Version/Release → Story/Task`.
-
-## Plugin mechanics
-
-### Profiles
-
-[`profiles/task/v1.yaml`](profiles/task/v1.yaml) and
-[`profiles/plan/v1.yaml`](profiles/plan/v1.yaml) define:
-
-- profile identity and kind;
-- capability, adapter, receipt, and routing contracts;
-- ordered gates (`id`, `queue`, `name`, `purpose`);
-- required capabilities for each gate;
-- guidance skill and prompt;
-- closure-required gates.
-
-Adapters may strengthen a gate but cannot remove or reorder profile gates.
-
-### Capability contracts
-
-[`contracts/task/v1.yaml`](contracts/task/v1.yaml) and
-[`contracts/plan/v1.yaml`](contracts/plan/v1.yaml) define every capability and
-which adapter role must provide it. Validation fails when selected adapters do
-not cover the exact capabilities required by a routed gate.
-
-### Routing
-
-[`routing/task/v1.yaml`](routing/task/v1.yaml) and
-[`routing/plan/v1.yaml`](routing/plan/v1.yaml) bind each gate to:
-
-- participating adapter roles;
-- one `executorAdapter`;
-- the semantic receipt expected from the gate.
-
-Routing separates “contributes context” from “may execute and issue evidence.”
-
-### Adapter contract and parameters
-
-Every adapter follows [`contracts/adapter/v1.yaml`](contracts/adapter/v1.yaml).
-Required fields:
-
-| Field | Meaning |
-|---|---|
-| `apiVersion`, `kind` | `acdd/adapter/v1`, `adapter` |
-| `id` | Stable owner-specific adapter identifier |
-| `role` | `task`, `implementation`, `plan`, or `audit` |
-| `provides` | Exact implemented capabilities for that role |
-| `procedure` | Inline steps or adapter-relative procedure path(s) |
-| `authority` | Owner paths, commands, evidence sources, mappings, and impact axes |
-| `constraints` | Fail-closed local invariants |
-
-Optional fields:
-
-| Field | Meaning |
-|---|---|
-| `availability` | Runtime prerequisites and availability conditions |
-| `gateProcedures` | Gate-specific operation, launcher, discovery, review, and tool policy |
-| `resources` / `scripts` | Adapter-relative contracts, templates, or executables |
-| `externalMappings` | Projection to Linear, Jira, or another owner system |
-| `inputAuthorities` | Allowed glob patterns for each typed input class |
-| `writePolicy` | Additional allow/deny rules and explicit protected-write exceptions |
-| `receipts` | Owner-specific receipt storage/closure details |
-| `skillExtensions` | Additional owner procedures layered onto profile guidance |
-
-All procedure, resource, and script paths resolve relative to the adapter file
-and must remain inside the allowed workspace authority.
-
-### Gate procedures and launchers
-
-An independently executed gate binds a concrete launcher:
-
-```yaml
-gateProcedures:
-  architecture/v1:
-    operation: architecture-verify
-    runtime: pi                    # provenance only
-    launchers:
-      inspector:
-        kind: command
-        target: pi
-        arguments: [--print, "{sessionUuid}"]
-        promptTransport: final-argument
-      coordinator:
-        kind: command
-        target: pi
-        arguments: [--print, "{sessionUuid}", --no-tools]
-        promptTransport: final-argument
-    toolEnvelope:
-      admit: [read, grep, find]
-      deny: [bash, edit, write]
+```text
+Start or continue the bound task at planner/path/to/task.md using acdd/task/v1.
+Load planner/.acdd/task-adapter.yaml and product/.acdd/implementation-adapter.yaml.
+Validate the composition, inspect the current receipts, and execute the next
+eligible gate only. Record real evidence; do not manufacture or skip receipts.
 ```
 
-`runtime` is never treated as a command or tool. `launcher.target` is the actual
-thing invoked. A command launcher uses the host command executor; a tool
-launcher invokes the exact bound tool. The envelope may list only tools truly
-available inside that launched session.
+For planning:
 
-Task architecture adapters also bind concrete discovery methods for
-`exactText`, `structural`, and `dependency`, plus the verification contract,
-command CWD, model, scope, session-count restriction, and split inspector/
-coordinator launchers. The legacy singular `launcher` remains valid for
-procedures that do not need split orchestration; a procedure must not declare
-both forms. The generic validator requires concrete command launchers but does
-not prescribe their host. Concrete hosts, transports, model routing, and
-executor bindings belong exclusively to the owning adapter.
+```text
+Create or improve the planning set rooted at planner/plans/active/example.md
+using acdd/plan/v1 and planner/.acdd/plan-adapter.yaml. Validate first, execute
+gates in profile order, create inactive task candidates, and stop on blockers.
+```
 
-### Input authority and write policy
+## Why `INSTALL.md` remains separate
 
-Bound documents declare typed workspace-relative inputs:
+README is the human-oriented explanation of the method, stages, gate execution,
+adapters, package structure, and first run. [`INSTALL.md`](INSTALL.md) remains a
+technical runbook for people integrating a real repository. It contains the
+complete adapter field reference, capability and routing lookup, launcher and
+artifact contracts, inputs/evidence/receipt rules, write policy, external-system
+mappings, exact validation commands, and owner `AGENTS.md` template. Keeping
+those details separate makes this README readable without weakening the
+operational contract.
 
-- `source`
-- `test`
-- `configuration`
-- `generated`
-- `dependency`
-- `environment`
-- `accepted-review-findings`
+Further reading:
 
-Each path must match at least one supplied adapter's `inputAuthorities` pattern.
-The default write policy permits ordinary paths but protects `.agents/**` and
-all `AGENTS.md` files. A protected write requires both a narrowly scoped
-`protectedAllow` rule and an explicit user request. Deny rules always win.
+- [Getting started walkthrough](docs/getting-started.md)
+- [Contract versioning policy](docs/versioning.md)
+- [Examples index](examples/README.md)
+- [Runner optimization notes](docs/optimization.md)
 
-### Evidence, receipts, and invalidation
-
-The bound task or primary plan stores:
-
-- `## ACDD inputs` — typed paths;
-- `## ACDD gate evidence` — bounded `basis`, `command`, `proof-bundle`, `review`, `handoff`, or
-  `rationale` evidence;
-- an ordered receipt table;
-- explicit blockers.
-
-Receipt contracts define terminal statuses, evidence mode (`basis`, `snapshot`,
-or `live`), invalidating input classes, fingerprint format, and timestamp
-format. The validator computes the canonical snapshot and semantic fingerprint
-in memory; it does not write input manifests or raw review transcripts.
-Receipts have no wall-clock expiry: `recordedAt` is provenance, while the
-fingerprint, contract revision, and declared inputs determine freshness.
-
-### Architecture verification
-
-[`contracts/architecture-verification/v1.yaml`](contracts/architecture-verification/v1.yaml)
-requires isolation, read-only execution, a shared input fingerprint, complete
-partition coverage, finding reconciliation, persisted-contract reconciliation,
-and exactly one authoritative coordinator session. Inspector output cannot
-contain a receipt or verdict. Typed partition findings must describe a
-candidate-design defect; `resolvedFindings` lets the coordinator close findings
-that only restate already-complete task authority or observe expected legacy
-code. New runner results include normalized launcher usage while older v1
-results without that additive field remain valid.
-
-### Skills
-
-[`skills/acdd-task/`](skills/acdd-task/) and
-[`skills/acdd-plan/`](skills/acdd-plan/) contain the canonical agent procedures.
-A profile references a skill by name; an owner adapter can add local details but
-cannot weaken profile gates. `--settings` can verify that skill resolution is
-unambiguous.
-
-### Validators
-
-- `scripts/validate_acdd.py` validates profile composition, adapters,
-  capabilities, routing, input authority, the bound document, evidence,
-  fingerprints, and receipts.
-- `scripts/check_simple_plan.py` validates the optional
-  [`acdd/plan/simple/v1`](contracts/plan/simple/v1.yaml) shape.
-- `scripts/check_markdown_links.py` validates repository-local documentation
-  links.
-- `scripts/acdd_metrics.py` summarizes current receipt statuses and completed
-  receipt spans from selected task Markdown paths.
-- `scripts/architecture_verification.py`, `acdd_document.py`,
-  `acdd_fingerprint.py`, and `value_domains.py` implement the verification,
-  parsing, hashing, and domain-propagation primitives used by the validator.
-
-### Examples
-
-[`examples/README.md`](examples/README.md) indexes every copyable owner adapter
-and document. Examples are executable contracts tested by this repository, not
-illustrative pseudocode.
-
-## Verify this plugin
+## Verify plugin changes
 
 ```bash
 python3 -m pytest tests -q
-python3 scripts/validate_acdd.py \
-  --profile profiles/task/v1.yaml \
-  --workspace-root . \
-  --document examples/task/TASK.md \
-  --adapter task=examples/planner/.acdd/task-adapter.yaml \
-  --adapter implementation=examples/codebase/.acdd/implementation-adapter.yaml
-python3 scripts/validate_acdd.py \
-  --profile profiles/plan/v1.yaml \
-  --workspace-root . \
-  --document examples/simple-plan/PLAN.md \
-  --adapter plan=examples/simple-plan/.acdd/plan-adapter.yaml
-python3 scripts/check_simple_plan.py \
-  --plan examples/simple-plan/PLAN.md --strict
-python3 scripts/acdd_metrics.py examples/task
 python3 scripts/check_markdown_links.py --root .
 git diff --check
 ```
