@@ -1,18 +1,20 @@
 # Reviewer adapter examples
 
-These full adapters extract the review patterns used by Planner-style owner
-bundles:
+These full adapters show the owner-bound review pattern:
 
 - [`task-adapter.yaml`](.acdd/task-adapter.yaml) owns isolated inbound
-  `architecture/v1` execution and binds discovery capabilities to actual tools.
+  `architecture/v1`: four read-only inspectors, then one tool-free coordinator.
 - [`implementation-adapter.yaml`](.acdd/implementation-adapter.yaml) owns the
   terminal task `review/v1`.
 - [`plan-adapter.yaml`](.acdd/plan-adapter.yaml) owns bounded planning
   verification and terminal planning-set review.
 
-There is no detached reviewer role. Copy the adapter for the domain role that
-owns the gate, then replace authority, launcher, model, and tool-envelope values
-with tools exposed by that host.
+Copy the adapter for the domain role that runs the gate. Replace authority,
+launcher, model, and tool-envelope values with those exposed by that host.
+
+For G1 amendments, declare an adapter-owned `architectureArtifacts` backend.
+It records the frozen manifest, receipt, and paired transcript outside task
+Markdown, using host-selected storage, retention, redaction, and serialization.
 
 `code_map_query` alone satisfies the dependency-impact capability when invoked
 with `operation=impact`. Use `profile` to select the review risk lens, `view` to

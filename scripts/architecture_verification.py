@@ -68,6 +68,24 @@ PARTITION_DEFECT_KINDS = {
     "unprovable-acceptance",
 }
 USAGE_FIELDS = {"input", "output", "cacheRead", "cacheWrite", "cost", "totalTokens"}
+REQUIRED_GUIDANCE_AXES = frozenset(
+    {
+        "canonical-owner",
+        "production-path",
+        "contract-propagation",
+        "authority-identity",
+        "lifecycle-failure-rollback-cleanup",
+        "alternate-path-compatibility",
+        "persisted-contract-parity",
+        "impact-scope",
+        "negative-cross-boundary-proof",
+        "contradiction-blockers",
+        "canonical-normalization",
+        "authorization-before-selection",
+        "terminal-outcome-truth",
+        "terminal-projection-truth",
+    }
+)
 
 
 def _validate_discovery(value: object, label: str) -> None:
@@ -458,6 +476,13 @@ def validate_schema(schema: dict[str, Any]) -> dict[str, Any]:
         )
     if schema.get("maxParallelInspectors") != 4:
         raise ArchitectureVerificationError("schema.maxParallelInspectors must be 4")
+    required_guidance_axes = set(
+        _strings(schema.get("requiredGuidanceAxes"), "schema.requiredGuidanceAxes")
+    )
+    if required_guidance_axes != REQUIRED_GUIDANCE_AXES:
+        raise ArchitectureVerificationError(
+            "schema.requiredGuidanceAxes must define the canonical architecture guidance axes"
+        )
     inspector = _mapping(schema.get("inspectorPolicy"), "schema.inspectorPolicy")
     expected_inspector = {
         "readOnly": True,
@@ -544,6 +569,7 @@ def validate_contract(
     if not isinstance(inspectors, list) or len(inspectors) != 4:
         raise ArchitectureVerificationError("contract.inspectors must contain exactly four partitions")
     ids: list[str] = []
+    covered_axes: set[str] = set()
     for index, raw in enumerate(inspectors):
         inspector = _mapping(raw, f"contract.inspectors[{index}]")
         inspector_id = inspector.get("id")
@@ -552,12 +578,20 @@ def validate_contract(
                 f"contract.inspectors[{index}].id must be a non-empty string"
             )
         ids.append(inspector_id)
-        _strings(inspector.get("covers"), f"contract.inspectors[{index}].covers")
+        covered_axes.update(
+            _strings(inspector.get("covers"), f"contract.inspectors[{index}].covers")
+        )
         _strings(
             inspector.get("authority"), f"contract.inspectors[{index}].authority"
         )
     if len(ids) != len(set(ids)):
         raise ArchitectureVerificationError("contract inspector ids must be unique")
+    missing_guidance_axes = sorted(REQUIRED_GUIDANCE_AXES - covered_axes)
+    if missing_guidance_axes:
+        raise ArchitectureVerificationError(
+            "contract inspector coverage misses required guidance axes: "
+            f"{missing_guidance_axes}"
+        )
     inspector_map = {str(item["id"]): item for item in inspectors}
     for inspector_id in ("contract", "persistence"):
         inspector = inspector_map.get(inspector_id)
@@ -729,7 +763,7 @@ def validate_result(
         frozenset(legacy_coordinator_fields),
     }:
         raise ArchitectureVerificationError(
-            f"coordinator fields must match the v1 fields with optional resolvedFindings"
+            "coordinator fields must match the v1 fields with optional resolvedFindings"
         )
     _validate_reconciled_recommendations(coordinator, partitions, str(verdict))
     for partition_id in ("contract", "persistence"):

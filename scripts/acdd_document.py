@@ -8,12 +8,12 @@ from pathlib import Path
 from uuid import UUID
 
 from acdd_fingerprint import (
-    G0_BASELINE_SECTION,
     DIGEST_RE,
+    G0_BASELINE_SECTION,
     ArchitectureAmendment,
-    architecture_authority_ids,
     FingerprintError,
     SemanticFingerprint,
+    architecture_authority_ids,
     fingerprint_architecture_candidate,
     fingerprint_inputs,
     markdown_sections,
@@ -28,6 +28,8 @@ from architecture_governor import (
 )
 from architecture_verification import (
     ArchitectureVerificationError,
+)
+from architecture_verification import (
     validate_result as validate_architecture_verification_result,
 )
 from value_domains import ValueDomain, ValueDomainError, parse_value_domains
@@ -37,6 +39,15 @@ EVIDENCE_ID_RE = re.compile(r"[a-z][a-z0-9._-]+")
 LEGACY_REFERENCE_RE = re.compile(r"\b(?:manifest|spec|components)=")
 SECRET_RE = re.compile(
     r"(?i)(?:api[_-]?key|authorization|password|secret|token)\s*[:=]\s*(?!<redacted>)\S+"
+)
+NAMED_PROOFS_HEADING_RE = re.compile(r"(?m)^## Named proof IDs\s*$")
+PROOF_MAPPING_HEADING_RE = re.compile(r"(?m)^## Proof obligation mapping\s*$")
+PROOF_ID_RE = re.compile(r"`([a-z][a-z0-9._-]+)`")
+PROOF_MAPPING_COLUMNS = (
+    "Proof ID",
+    "Boundary",
+    "Required scenarios",
+    "Execution evidence",
 )
 MAX_OUTPUT_BYTES = 4096
 RED_STRUCTURAL_ERRORS = (
@@ -148,6 +159,62 @@ def _bool(value: object, label: str) -> bool:
     return value
 
 
+def _proof_mapping_cells(line: str) -> tuple[str, ...]:
+    if not line.startswith("|") or not line.endswith("|"):
+        raise DocumentError("Proof obligation mapping rows must be Markdown table rows")
+    return tuple(cell.strip() for cell in line[1:-1].split("|"))
+
+
+def _validate_named_proof_coverage(text: str, proof_ids: list[str]) -> None:
+    heading = NAMED_PROOFS_HEADING_RE.search(text)
+    if heading is None:
+        return
+    next_heading = re.search(r"(?m)^## ", text[heading.end() :])
+    end = heading.end() + next_heading.start() if next_heading is not None else len(text)
+    missing = sorted(set(PROOF_ID_RE.findall(text[heading.end() : end])) - set(proof_ids))
+    if missing:
+        raise DocumentError(f"Proof obligation mapping misses named proof IDs: {missing}")
+
+
+def validate_proof_obligation_mapping(text: str, *, terminal: bool) -> tuple[str, ...]:
+    heading = PROOF_MAPPING_HEADING_RE.search(text)
+    if heading is None:
+        return ()
+    next_heading = re.search(r"(?m)^## ", text[heading.end() :])
+    end = heading.end() + next_heading.start() if next_heading is not None else len(text)
+    lines = [line.strip() for line in text[heading.end() : end].splitlines() if line.strip()]
+    if len(lines) < 3:
+        raise DocumentError("Proof obligation mapping requires a header and at least one row")
+
+    if _proof_mapping_cells(lines[0]) != PROOF_MAPPING_COLUMNS:
+        raise DocumentError(
+            "Proof obligation mapping columns must be Proof ID, Boundary, Required scenarios, Execution evidence"
+        )
+    separator = _proof_mapping_cells(lines[1])
+    if len(separator) != len(PROOF_MAPPING_COLUMNS) or any(
+        re.fullmatch(r":?-{3,}:?", cell) is None for cell in separator
+    ):
+        raise DocumentError("Proof obligation mapping separator is invalid")
+
+    proof_ids: list[str] = []
+    for index, line in enumerate(lines[2:], start=1):
+        row = _proof_mapping_cells(line)
+        if len(row) != len(PROOF_MAPPING_COLUMNS) or any(not cell or cell == "-" for cell in row):
+            raise DocumentError(f"Proof obligation mapping row {index} is incomplete")
+        row_ids = PROOF_ID_RE.findall(row[0])
+        if not row_ids:
+            raise DocumentError(f"Proof obligation mapping row {index} requires a backticked proof ID")
+        proof_ids.extend(row_ids)
+        if terminal and re.search(r"(?i)\bpending\b", row[3]):
+            raise DocumentError(
+                f"Proof obligation mapping row {index} remains pending at terminal review"
+            )
+    if len(proof_ids) != len(set(proof_ids)):
+        raise DocumentError("Proof obligation mapping contains duplicate proof IDs")
+    _validate_named_proof_coverage(text, proof_ids)
+    return tuple(proof_ids)
+
+
 def _require_keys(
     value: dict[str, object],
     *,
@@ -236,7 +303,6 @@ def _parse_component_locks(
     declared_paths: frozenset[str],
     workspace_root: Path,
     label: str,
-    verify_bytes: bool = True,
 ) -> None:
     if not isinstance(value, list) or not value:
         raise DocumentError(f"{label}: expected a non-empty component lock list")
@@ -255,19 +321,9 @@ def _parse_component_locks(
         target = (workspace_root / path).resolve()
         if not target.is_relative_to(workspace_root.resolve()) or not target.is_file():
             raise DocumentError(f"{label}[{index}]: missing or escaping path {path!r}")
-        # A red/v1 lock records the bytes observed at RED time, and the fix that
-        # closes the gate is expected to change them. Comparing a lock against the
-        # working tree therefore only detects tampering while the task is still
-        # being delivered; once the task is terminal the same comparison would
-        # retroactively invalidate every landed red proof.
-        if not verify_bytes:
-            continue
-
-        import hashlib
-
-        current = "sha256:" + hashlib.sha256(target.read_bytes()).hexdigest()
-        if current != digest:
-            raise DocumentError(f"{label}[{index}]: stale component lock")
+        # The digest records the bytes observed when RED ran. The implementation
+        # is expected to change those bytes, so current-worktree equality would
+        # retroactively invalidate valid historical evidence.
 
 
 def _evidence_revision(
@@ -493,7 +549,6 @@ def parse_evidence(
                         declared_paths=declared_paths,
                         workspace_root=workspace_root,
                         label=f"evidence {evidence_id}.componentLocks",
-                        verify_bytes=active,
                     )
                 else:
                     _string(revision, f"evidence {evidence_id}.gitRevision")
@@ -1174,6 +1229,14 @@ def validate_document(
         raise DocumentError(
             f"receipt gates mismatch: expected={list(policy_map)} found={list(receipt_map)}"
         )
+    if not plan:
+        proof_mapping_terminal = any(
+            gate in policy_map
+            and gate in receipt_map
+            and receipt_map[gate].status in policy_map[gate].terminal_statuses
+            for gate in ("review/v1", "handoff/v1")
+        )
+        validate_proof_obligation_mapping(text, terminal=proof_mapping_terminal)
     gate_order = tuple(policy_map)
     g0_frozen = (
         semantic_record is not None

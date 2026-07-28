@@ -29,6 +29,10 @@ from architecture_verification import (
     validate_result as validate_architecture_verification_result,
     validate_schema as validate_architecture_verification_schema,
 )
+from workflow_learning import (
+    WorkflowLearningError,
+    validate_contract as validate_workflow_learning_contract,
+)
 
 PLUGIN_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_PROFILE = PLUGIN_ROOT / "profiles" / "task" / "v1.yaml"
@@ -57,6 +61,8 @@ class CoreContract:
     adapter_contract: dict[str, object]
     receipt_contract: dict[str, object]
     receipt_contract_path: Path
+    workflow_learning_contract: dict[str, object]
+    workflow_learning_contract_path: Path
     gates: tuple[GateContract, ...]
     routes: dict[str, tuple[str, ...]]
     route_executors: dict[str, str]
@@ -275,6 +281,17 @@ def load_core(profile_path: Path = DEFAULT_PROFILE) -> CoreContract:
         key: _resolve(profile_path, profile.get(key), f"profile.{key}", allowed_root=authority_root)
         for key in ("routing", "capabilityContract", "adapterContract", "receiptContract")
     }
+    workflow_learning_contract_path = _resolve(
+        profile_path,
+        profile.get("workflowLearningContract"),
+        "profile.workflowLearningContract",
+        allowed_root=authority_root,
+    )
+    workflow_learning_contract = _mapping(workflow_learning_contract_path)
+    try:
+        validate_workflow_learning_contract(workflow_learning_contract)
+    except WorkflowLearningError as exc:
+        raise ContractError(str(exc)) from exc
     routing = _mapping(linked["routing"])
     capabilities = _mapping(linked["capabilityContract"])
     adapter_contract = _mapping(linked["adapterContract"])
@@ -541,6 +558,8 @@ def load_core(profile_path: Path = DEFAULT_PROFILE) -> CoreContract:
         adapter_contract=adapter_contract,
         receipt_contract=receipt,
         receipt_contract_path=linked["receiptContract"],
+        workflow_learning_contract=workflow_learning_contract,
+        workflow_learning_contract_path=workflow_learning_contract_path,
         gates=tuple(parsed_gates),
         routes=parsed_routes,
         route_executors=route_executors,
@@ -718,6 +737,12 @@ def _validate_executor_gate_procedures(
         has_launchers = "launchers" in procedure
         if has_launcher and has_launchers:
             raise ContractError(f"{label}.{gate_id} may declare launcher or launchers, not both")
+        is_task_architecture = (
+            gate_id == "architecture/v1"
+            and core.profile.get("apiVersion") == "acdd/task/v1"
+        )
+        if is_task_architecture and not has_launchers:
+            raise ContractError("task architecture/v1 requires inspector and coordinator launchers")
         if not has_launcher and not has_launchers:
             raise ContractError(f"{label}.{gate_id} requires a launcher")
         if has_launchers:
@@ -756,7 +781,7 @@ def _validate_executor_gate_procedures(
             denied_tools = {"bash", "edit", "write", "pi_review_agents"}
             if not required_tools <= admit or not denied_tools <= deny:
                 raise ContractError("architecture/v1 must admit mcp and deny bash/edit/write/pi_review_agents")
-            if core.profile.get("apiVersion") != "acdd/task/v1":
+            if not is_task_architecture:
                 continue
             if procedure.get("authoritativeSessions") != 1:
                 raise ContractError("architecture/v1 requires one authoritative session")
@@ -787,17 +812,6 @@ def _validate_executor_gate_procedures(
                         raise ContractError("architecture/v1 inspector launcher must enable only mcp tools")
                     if coordinator_arguments.count("--no-tools") != 1 or "--tools" in coordinator_arguments:
                         raise ContractError("architecture/v1 coordinator launcher must disable all tools")
-                else:
-                    model = procedure.get("model")
-                    model_fields = {"provider", "modelId", "reasoning"}
-                    if not isinstance(model, dict) or set(model) != model_fields or not all(isinstance(model[field], str) and model[field].strip() for field in model_fields):
-                        raise ContractError("architecture/v1 legacy model must contain provider, modelId, and reasoning")
-                    arguments = launchers["legacy"]["arguments"]
-                    assert isinstance(arguments, list)
-                    for flag, field in (("--provider", "provider"), ("--model", "modelId"), ("--thinking", "reasoning")):
-                        positions = [index for index, argument in enumerate(arguments) if argument == flag]
-                        if len(positions) != 1 or positions[0] + 1 >= len(arguments) or arguments[positions[0] + 1] != model[field]:
-                            raise ContractError(f"architecture/v1 launcher {flag} must match model.{field}")
             contract_path = _resolve(
                 owner,
                 procedure.get("contract"),

@@ -1,0 +1,38 @@
+---
+apiVersion: acdd/workflow-learning/v1
+kind: workflow-learning-contract
+id: acdd/workflow-learning/v1
+trigger: after-terminal-review-report
+inputs: [terminalReviewReport, confirmedFindings, guidanceSnapshot]
+cycle:
+  - id: cluster
+    action: Cluster confirmed findings by missed invariant.
+  - id: trace
+    action: Trace how each invariant escaped the applicable task and review gates.
+  - id: propose
+    action: Propose the smallest prevention improvement at its owning scope.
+  - id: classify
+    action: Classify each candidate without changing the reviewed task verdict.
+  - id: adopt
+    action: Apply accepted guidance prospectively or through an authorized amendment.
+output: workflowLearning
+verdictEffect: none
+receiptEffect: none
+defaultDisposition: advisory
+dispositionEffects:
+  advisory: record
+  candidate-required: open-governance-change
+  rejected: record-rationale
+guidanceCompatibility:
+  missingSnapshot: historical:no-snapshot
+  laterGuidance: not-in-task-snapshot
+  blockingEligibility: in-guidance-snapshot-or-authorized-amendment
+scopes: [task, project, canonical]
+dispositions: [advisory, candidate-required, rejected]
+requiredCandidateFields:
+  - id
+  - sourceFindings
+  - missedInvariant
+  - prevention
+  - scope
+  - disposition

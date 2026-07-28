@@ -6,6 +6,7 @@ title: Evidence-bound planning set
 capabilityContract: ../../contracts/plan/v1.yaml
 adapterContract: ../../contracts/adapter/v1.yaml
 receiptContract: ../../contracts/receipt/plan/v1.yaml
+workflowLearningContract: ../../contracts/workflow-learning/v1.yaml
 routing: ../../routing/plan/v1.yaml
 gates:
   - {id: intent/v1, queue: 10, name: Intent, purpose: Bind one primary plan and bounded planning set., capabilities: [plan_read, plan_write], guidance: {skill: acdd-plan, prompt: Record outcome mode scope non-goals area and lifecycle status.}}

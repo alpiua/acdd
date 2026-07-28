@@ -35,5 +35,5 @@ Every optimization must continue to prove:
 - runtime/schema/transport `BLOCKED` does not consume the material FAIL cap;
 - PASS writes one evidence object and one receipt;
 - all bounded findings and normalized usage survive terminal recording;
-- legacy singular launchers remain valid, while split launchers cannot be
-  ambiguous or declared together with `launcher`.
+- task architecture launchers are split and unambiguous; other gate modes use
+  their declared single-launcher form.

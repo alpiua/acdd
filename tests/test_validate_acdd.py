@@ -19,9 +19,9 @@ MODULE = importlib.util.module_from_spec(SPEC)
 sys.modules[SPEC.name] = MODULE
 SPEC.loader.exec_module(MODULE)
 
-import architecture_verification as ARCH  # noqa: E402
-
-
+import acdd_document as DOCUMENT
+import architecture_verification as ARCH
+import workflow_learning as LEARNING
 
 
 def _discovery_receipt() -> dict[str, object]:
@@ -130,6 +130,28 @@ def test_both_profiles_load_with_shared_inline_receipt_model() -> None:
     ]
     assert task.architecture_verification_schema is not None
     assert plan.architecture_verification_schema is None
+    assert task.workflow_learning_contract is not None
+    assert task.workflow_learning_contract == plan.workflow_learning_contract
+    assert task.workflow_learning_contract["verdictEffect"] == "none"
+    assert task.workflow_learning_contract["receiptEffect"] == "none"
+
+
+def test_workflow_learning_example_matches_canonical_contract() -> None:
+    core = MODULE.load_core(ROOT / "profiles" / "task" / "v1.yaml")
+    assert core.workflow_learning_contract is not None
+    example = MODULE._mapping(ROOT / "examples" / "task" / "workflow-learning.yaml")
+    assert (
+        LEARNING.validate_record(example, core.workflow_learning_contract)["status"]
+        == "analyzed"
+    )
+
+
+def test_workflow_learning_candidate_requires_a_confirmed_finding() -> None:
+    core = MODULE.load_core(ROOT / "profiles" / "task" / "v1.yaml")
+    example = MODULE._mapping(ROOT / "examples" / "task" / "workflow-learning.yaml")
+    example["candidates"][0]["sourceFindings"] = []
+    with pytest.raises(LEARNING.WorkflowLearningError, match="sourceFindings"):
+        LEARNING.validate_record(example, core.workflow_learning_contract)
 
 
 def test_example_adapters_cover_routed_capabilities() -> None:
@@ -148,7 +170,8 @@ def test_example_adapters_cover_routed_capabilities() -> None:
     assert discovery["dependency"]["tools"] == ["code_map_query"]
     architecture = task_adapter["gateProcedures"]["architecture/v1"]
     assert architecture["runtime"] == "pi"
-    assert architecture["launcher"]["target"] == "pi"
+    assert architecture["launchers"]["inspector"]["target"] == "pi"
+    assert architecture["launchers"]["coordinator"]["target"] == "pi"
     assert architecture["runtime"] not in architecture["toolEnvelope"]["admit"]
     implementation_adapter = MODULE.load_adapter(
         ROOT / "examples" / "codebase" / ".acdd" / "implementation-adapter.yaml",
@@ -173,25 +196,12 @@ def test_example_adapters_cover_routed_capabilities() -> None:
         )
 
 
-def test_architecture_model_is_adapter_selected_and_launcher_bound() -> None:
+def test_task_architecture_launchers_bind_models() -> None:
     core = MODULE.load_core(ROOT / "profiles" / "task" / "v1.yaml")
     adapter_path = ROOT / "examples" / "planner" / ".acdd" / "task-adapter.yaml"
     adapter = MODULE.load_adapter(adapter_path, "task", core, allowed_root=ROOT)
     procedures = copy.deepcopy(adapter["gateProcedures"])
     architecture = procedures["architecture/v1"]
-    architecture["model"] = {
-        "provider": "example-provider",
-        "modelId": "example-model",
-        "reasoning": "medium",
-    }
-    arguments = architecture["launcher"]["arguments"]
-    for flag, value in (
-        ("--provider", "example-provider"),
-        ("--model", "example-model"),
-        ("--thinking", "medium"),
-    ):
-        arguments[arguments.index(flag) + 1] = value
-
     MODULE._validate_executor_gate_procedures(
         procedures,
         core,
@@ -201,8 +211,9 @@ def test_architecture_model_is_adapter_selected_and_launcher_bound() -> None:
         "adapter.gateProcedures",
     )
 
-    arguments[arguments.index("--model") + 1] = "different-model"
-    with pytest.raises(MODULE.ContractError, match="must match model.modelId"):
+    arguments = architecture["launchers"]["inspector"]["arguments"]
+    del arguments[arguments.index("--model")]
+    with pytest.raises(MODULE.ContractError, match="inspector launcher must bind --model exactly once"):
         MODULE._validate_executor_gate_procedures(
             procedures,
             core,
@@ -213,24 +224,13 @@ def test_architecture_model_is_adapter_selected_and_launcher_bound() -> None:
         )
 
 
-def test_split_architecture_launchers_are_validated_and_legacy_remains_supported() -> None:
+def test_task_architecture_requires_split_launchers() -> None:
     core = MODULE.load_core(ROOT / "profiles" / "task" / "v1.yaml")
     adapter_path = ROOT / "examples" / "planner" / ".acdd" / "task-adapter.yaml"
     adapter = MODULE.load_adapter(adapter_path, "task", core, allowed_root=ROOT)
     procedures = copy.deepcopy(adapter["gateProcedures"])
     architecture = procedures["architecture/v1"]
-    legacy = architecture.pop("launcher")
-    architecture.pop("model")
-    architecture["launchers"] = {
-        "inspector": copy.deepcopy(legacy),
-        "coordinator": copy.deepcopy(legacy),
-    }
-    inspector_arguments = architecture["launchers"]["inspector"]["arguments"]
-    inspector_arguments[inspector_arguments.index("--tools") + 1] = "mcp"
     coordinator_arguments = architecture["launchers"]["coordinator"]["arguments"]
-    tools_index = coordinator_arguments.index("--tools")
-    del coordinator_arguments[tools_index : tools_index + 2]
-    coordinator_arguments.append("--no-tools")
     MODULE._validate_executor_gate_procedures(
         procedures, core, "task", adapter_path, ROOT, "adapter.gateProcedures"
     )
@@ -240,8 +240,8 @@ def test_split_architecture_launchers_are_validated_and_legacy_remains_supported
             procedures, core, "task", adapter_path, ROOT, "adapter.gateProcedures"
         )
     coordinator_arguments[-2:] = ["--no-tools"]
-    architecture["launcher"] = copy.deepcopy(legacy)
-    with pytest.raises(MODULE.ContractError, match="launcher or launchers"):
+    architecture["launcher"] = architecture.pop("launchers")["inspector"]
+    with pytest.raises(MODULE.ContractError, match="requires inspector and coordinator launchers"):
         MODULE._validate_executor_gate_procedures(
             procedures, core, "task", adapter_path, ROOT, "adapter.gateProcedures"
         )
@@ -253,7 +253,6 @@ def test_architecture_accepts_host_neutral_split_command_launchers() -> None:
     adapter = MODULE.load_adapter(adapter_path, "task", core, allowed_root=ROOT)
     procedures = copy.deepcopy(adapter["gateProcedures"])
     architecture = procedures["architecture/v1"]
-    architecture.pop("model")
     architecture["runtime"] = "host-collaboration"
     architecture["launchers"] = {
         role: {
@@ -264,8 +263,6 @@ def test_architecture_accepts_host_neutral_split_command_launchers() -> None:
         }
         for role in ("inspector", "coordinator")
     }
-    architecture.pop("launcher")
-
     MODULE._validate_executor_gate_procedures(
         procedures, core, "task", adapter_path, ROOT, "adapter.gateProcedures"
     )
@@ -484,6 +481,65 @@ def test_parallel_verification_is_read_only_and_requires_every_partition() -> No
     ARCH.validate_contract(legacy_contract, core.architecture_verification_schema)
 
 
+def test_architecture_contract_requires_every_canonical_guidance_axis() -> None:
+    core = MODULE.load_core(ROOT / "profiles" / "task" / "v1.yaml")
+    assert core.architecture_verification_schema is not None
+    contract = ARCH.load_yaml(ROOT / "examples" / "task" / "architecture-verification.yaml")
+    incomplete = copy.deepcopy(contract)
+    incomplete["inspectors"][2]["covers"].remove("production-path")
+
+    with pytest.raises(
+        ARCH.ArchitectureVerificationError,
+        match="misses required guidance axes: .*production-path",
+    ):
+        ARCH.validate_contract(incomplete, core.architecture_verification_schema)
+
+
+def test_proof_obligation_mapping_shape_and_terminal_pending_policy() -> None:
+    example = (ROOT / "examples" / "task" / "TASK.md").read_text(encoding="utf-8")
+    assert DOCUMENT.validate_proof_obligation_mapping(example, terminal=False) == (
+        "proof.example-red",
+        "proof.example-scope",
+        "proof.example-parity",
+    )
+
+    pending = """## Proof obligation mapping
+
+| Proof ID | Boundary | Required scenarios | Execution evidence |
+|---|---|---|---|
+| `proof.pending` | storage | concurrent winner and loser | pending |
+"""
+    assert DOCUMENT.validate_proof_obligation_mapping(pending, terminal=False) == (
+        "proof.pending",
+    )
+    with pytest.raises(DOCUMENT.DocumentError, match="remains pending"):
+        DOCUMENT.validate_proof_obligation_mapping(pending, terminal=True)
+
+
+def test_proof_obligation_mapping_rejects_incomplete_and_duplicate_rows() -> None:
+    incomplete = """## Proof obligation mapping
+
+| Proof ID | Boundary | Required scenarios | Execution evidence |
+|---|---|---|---|
+| `proof.example` | storage | - | pending |
+"""
+    with pytest.raises(DOCUMENT.DocumentError, match="row 1 is incomplete"):
+        DOCUMENT.validate_proof_obligation_mapping(incomplete, terminal=False)
+
+    duplicate = incomplete.replace("| storage | - |", "| storage | scenario |") + (
+        "| `proof.example` | decoder | scenario | pending |\n"
+    )
+    with pytest.raises(DOCUMENT.DocumentError, match="duplicate proof IDs"):
+        DOCUMENT.validate_proof_obligation_mapping(duplicate, terminal=False)
+
+    missing_named = duplicate.replace(
+        "| `proof.example` | decoder | scenario | pending |\n",
+        "\n## Named proof IDs\n\n- `proof.other`\n",
+    )
+    with pytest.raises(DOCUMENT.DocumentError, match="misses named proof IDs"):
+        DOCUMENT.validate_proof_obligation_mapping(missing_named, terminal=False)
+
+
 def test_fail_requires_complete_coordinator_recommendation_and_exact_finding_coverage() -> None:
     core = MODULE.load_core(ROOT / "profiles" / "task" / "v1.yaml")
     assert core.architecture_verification_schema is not None
@@ -654,6 +710,7 @@ def test_task_v1_light_profile_loads() -> None:
     assert "matrix/v1" not in core.gate_ids
     assert "red/v1" not in core.gate_ids
     assert core.architecture_verification_schema is None
+    assert core.workflow_learning_contract["id"] == "acdd/workflow-learning/v1"
 
 
 def test_v1_light_example_validates_with_light_task_adapter() -> None:

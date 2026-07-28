@@ -4,6 +4,21 @@ kind: architecture-verification-schema
 id: acdd/architecture-verification-schema/v1
 maxParallelInspectors: 4
 requiredCapabilities: [independent_review, review_execution]
+requiredGuidanceAxes:
+  - canonical-owner
+  - production-path
+  - contract-propagation
+  - authority-identity
+  - lifecycle-failure-rollback-cleanup
+  - alternate-path-compatibility
+  - persisted-contract-parity
+  - impact-scope
+  - negative-cross-boundary-proof
+  - contradiction-blockers
+  - canonical-normalization
+  - authorization-before-selection
+  - terminal-outcome-truth
+  - terminal-projection-truth
 inspectorPolicy:
   readOnly: true
   mayWriteTask: false

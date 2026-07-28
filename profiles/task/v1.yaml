@@ -6,6 +6,7 @@ title: Evidence-bound task delivery
 capabilityContract: ../../contracts/task/v1.yaml
 adapterContract: ../../contracts/adapter/v1.yaml
 receiptContract: ../../contracts/receipt/task/v1.yaml
+workflowLearningContract: ../../contracts/workflow-learning/v1.yaml
 routing: ../../routing/task/v1.yaml
 gates:
   - {id: matrix/v1, queue: 10, name: Coverage matrix, purpose: Bind task coverage to live owners before implementation., capabilities: [task_read, impact, source_map, docs_search, structural_search, task_write], guidance: {skill: acdd-task, prompt: Record affected domains, owners, propagation, authorization, proof IDs, and blockers; load adapter-required axes such as deployment.}}

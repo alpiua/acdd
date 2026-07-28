@@ -1,24 +1,27 @@
-# Adapter examples
+# ACDD examples
 
-| Domain | Adapters | Projection |
+Copy the smallest bundle that matches the owning domain. Replace every example
+authority, path, command, model, tool, and external mapping with live owner
+values.
+
+| Example | Use it for | Includes |
 |---|---|---|
-| [`linear/.acdd/`](linear/.acdd/) | plan | Initiative → Project → Project Milestone → Issue |
-| [`jira/.acdd/`](jira/.acdd/) | plan | Initiative → Epic → Version/Release → Story or Task |
-| [`planner/.acdd/`](planner/.acdd/) | task, plan | filesystem roadmap, phases, milestones, tasks, and plans |
-| [`codebase/.acdd/`](codebase/.acdd/) | implementation | source, tests, configuration, docs, gates, code review |
-| [`reviewers/`](reviewers/) | task, implementation, plan | Planner-style inbound architecture and terminal overview review |
-| [`audit/.acdd/`](audit/.acdd/) | audit | selected terminal report publication |
-| [`simple-plan/`](simple-plan/) | plan | self-contained milestone plan with embedded tasks |
-| [`task/TASK.md`](task/TASK.md) | task document | inline typed inputs, evidence, and pending receipts |
+| [`planner/.acdd/`](planner/.acdd/) | Filesystem roadmap delivery | Task and plan adapters, impact variants, task lifecycle rules |
+| [`codebase/.acdd/`](codebase/.acdd/) | Code/test/configuration owner | Full and light implementation adapters, release invariants |
+| [`reviewers/`](reviewers/) | Independent architecture and closure review | Task, implementation, and plan gate ownership with real launchers |
+| [`simple-plan/`](simple-plan/) | Self-contained milestone planning | Runnable plan, adapter, contract, and reference bundle |
+| [`linear/.acdd/`](linear/.acdd/) | Linear projection | Initiative → Project → Project Milestone → Issue mapping |
+| [`jira/.acdd/`](jira/.acdd/) | Jira projection | Initiative → Epic → Version/Release → Story or Task mapping |
+| [`audit/.acdd/`](audit/.acdd/) | Terminal report publication | Audit adapter for selected code or plan review reports |
+| [`task/TASK.md`](task/TASK.md) | Full bound task document | Typed inputs, decisions, evidence, and pending receipts |
+| [`task/workflow-learning.yaml`](task/workflow-learning.yaml) | Post-review reflection record | Missed-invariant analysis and a prospective canonical guidance candidate |
+| [`task-light/TASK.md`](task-light/TASK.md) | Reduced-scope task document | Light typed inputs and evidence shape |
 
-Copy the matching `.acdd/` directory into the repository that owns the domain,
-then replace example authority and procedures with live paths and commands.
-
-Plans remain separately bound artifacts. Impact axes come from the selected
-adapter; the examples include software-delivery, data-platform, regulated,
+Plans stay separately bound artifacts. Select impact axes in the owner adapter:
+the bundles demonstrate software-delivery, data-platform, regulated-service,
 product/customer, and commercial variants.
 
-The reviewer examples are full owner adapters, not a detached reviewer role.
-They show command-launched inbound verification, tool-launched terminal review,
-and a single `code_map_query(operation=impact)` binding for reverse dependency
-evidence.
+Reviewer bundles are full owner adapters. Their task adapter launches the
+four-partition architecture review; implementation and plan adapters launch the
+terminal review they own. `code_map_query(operation=impact)` supplies
+dependency-impact evidence when that tool is available.

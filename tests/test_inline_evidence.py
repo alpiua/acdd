@@ -388,6 +388,14 @@ componentLocks:
     parsed = DOC.parse_evidence(text, workspace_root=tmp_path, semantic=semantic)
     assert parsed["red.proof"].kind == "command"
 
+    (tmp_path / "test.py").write_text("implemented = True\n", encoding="utf-8")
+    parsed_after_implementation = DOC.parse_evidence(
+        text,
+        workspace_root=tmp_path,
+        semantic=semantic,
+    )
+    assert parsed_after_implementation["red.proof"].kind == "command"
+
 
 def test_every_discriminated_evidence_kind_parses(tmp_path: Path) -> None:
     document, _ = _fixture(tmp_path)

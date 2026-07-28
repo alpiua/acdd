@@ -2,6 +2,8 @@
 
 Load only for `architecture/v1`.
 
+Guidance snapshot: `acdd/architecture-guidance/v1`.
+
 ## G0 admission governor
 
 Before launching architecture verification, and before an `architecture/v1`
@@ -46,16 +48,81 @@ attempts:
     recordedAt: "2026-07-24T12:00:00Z"
 ```
 
-An architecture receipt may pass only when every partition reviews the complete task-scoped code map under the adapter-authorized implementation roots, not only the diff or one named file, and the proposed slice identifies:
+An architecture receipt may pass only when every partition reviews the complete
+task-scoped code map under the adapter-authorized implementation roots, not only
+the diff or one named file. Review the applicable guidance axes below:
 
-1. the canonical owner and desired end state;
-2. the production trigger → caller → contract → owner → consumer path across every package and service;
-3. contract, identity/authority, lifecycle, failure, rollback, and cleanup seams;
-4. direct and alternate producers, writers, schemas/migrations, readers, public types, migration/compatibility paths, and their removal owner;
-5. exact persisted acceptance, meaning, shape, and default parity at producer → writer → schema/migration → reader → public type;
-6. impact against every adapter-required domain axis: `no` with domains and proof, or `yes` with domains, owner, change, propagation, mitigation, authorization provenance, and approved/blocked status;
-7. one named negative or cross-boundary proof for every changed invariant;
-8. every unresolved contradiction as a blocker.
+1. **`canonical-owner`** — canonical owner and desired end state.
+2. **`production-path`** — trigger → caller → contract → owner → consumer across
+   every package and service.
+3. **`contract-propagation`** — producer, public type, serializer, transport,
+   validator, storage/export, reader, and projection.
+4. **`authority-identity`** — typed identity, authority owner, required scope,
+   and fail-before-I/O behavior.
+5. **`lifecycle-failure-rollback-cleanup`** — creation, mutation, terminal state,
+   failure, rollback/compensation, cleanup, and concurrent linearization. Name each
+   serialization key, winner/loser outcome, reread-after-wait rule, and residue-free
+   rollback condition.
+6. **`alternate-path-compatibility`** — direct and alternate producers, writers,
+   imports, caches, retries, fallbacks, migrations, legacy readers, and removal
+   owner.
+7. **`persisted-contract-parity`** — acceptance, meaning, shape, and defaults at
+   producer → writer → schema/migration → reader → public type across backends.
+8. **`impact-scope`** — every adapter-required domain axis is `no` with proof or
+   `yes` with owner, propagation, mitigation, authorization, and approved/blocked
+   status.
+9. **`negative-cross-boundary-proof`** — one named negative or compositional
+   proof for every changed invariant. Each proof maps to executable test nodes,
+   applicable backends, execution mode (`sequential` or `concurrent`), and exact
+   terminal outcomes; a proof ID without that mapping is incomplete.
+10. **`contradiction-blockers`** — every unresolved contradiction is a blocker.
+11. **`canonical-normalization`** — raw ingress and persisted null/empty/legacy
+   values enter one canonical normalizer and either produce a bounded domain
+   value or reject before downstream work. Assign wire-shape parsing, domain and
+   intra-batch validation, and cross-transaction arbitration to explicit owners;
+   boundary-model construction must preserve domain conflicts for typed outcomes.
+12. **`authorization-before-selection`** — authorization/scope filtering precedes
+   ranking and limiting; selection has a stable tie-break and applicable backend
+   parity proof. Test nearer unauthorized candidates against a farther
+   authorized result.
+13. **`terminal-outcome-truth`** — requested/attempted intent is distinct from the
+   terminal effective/applied outcome, including degraded and gate-off paths. A
+   batch assigns exactly one terminal outcome to every input position, classifies
+   every offender, marks unaffected siblings consistently, and is order-invariant.
+14. **`terminal-projection-truth`** — API, telemetry, audit, and evidence
+   projections read the terminal effective/applied source of truth rather than
+   request or attempt state.
+
+When concurrency, idempotency, revision control, or atomic batches apply, the
+proof mapping covers same key with same and different bytes, competing logical
+identity, competing expected revision, multiple invalid items plus valid siblings,
+input-order permutations, exactly-one mutation, loser reread, and rollback residue.
+Use a real concurrent production backend for cross-transaction claims; sequential
+replay and an in-process substitute do not prove that behavior.
+
+Add one compact task section:
+
+```md
+## Proof obligation mapping
+
+| Proof ID | Boundary | Required scenarios | Execution evidence |
+|---|---|---|---|
+| `proof.example` | owner boundary | adversarial scenario and exact outcome | test node; backend; mode; observed outcome, or `pending` |
+```
+
+Use one row per named proof; group IDs only when boundary, scenarios, and evidence
+are identical. `pending` is valid before execution. A terminal `review/v1` or
+`handoff/v1` requires every row to contain executable evidence. The validator
+checks the table shape, non-empty cells, unique proof IDs, and terminal pending
+ban. The implementation reviewer verifies that test nodes exist and that backend,
+mode, scenario cardinality, outcomes, and forbidden effects match the claim.
+
+Record the guidance snapshot in the task before G0. Guidance present in that
+snapshot shapes its architecture review. Later guidance is an advisory learning
+input: record it as `not-in-task-snapshot`, apply it through an authorized G1
+amendment when materially relevant, and never invalidate an existing receipt
+solely because the workflow learned a new recommendation. An axis may conclude
+`N/A` with a task-specific reason and evidence that the boundary is absent.
 
 Before PASS, each reviewer must produce receipts for three capabilities: bounded exact-text search, structural search, and reverse dependency traversal. The executor adapter binds those capabilities to host tools; generic ACDD never names a project tool. One tool may satisfy the dependency capability by itself; adapters must not require a second traversal tool when the bound operation already returns reverse impact. Use the adapter-bound path operation for a bounded dependency chain when the review question requires one. Assigned paths are entry points, not read boundaries. Missing capability, rejected call, unresolved selector, truncation without a widened follow-up query, or unreconciled discovery makes the partition incomplete and forbids PASS. Every partition result must carry typed `discovery.repositoryRoot` and `discovery.methods.{exactText,structural,dependency}` receipts with the canonical capability, actual tools, non-empty queries, and `complete: true`.
 

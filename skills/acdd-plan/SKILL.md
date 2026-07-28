@@ -9,11 +9,7 @@ Use [`acdd/plan/v1`](../../profiles/plan/v1.yaml) for one primary plan and its
 declared planning set.
 
 1. Supply one plan adapter to `scripts/validate_acdd.py`.
-2. Before loading or running any adapter-declared procedure, resource, or
-   script, resolve its relative path from the adapter file's directory, verify
-   that the resolved target exists and remains inside the adapter authority
-   root, and use that resolved target. Never reinterpret it from the session
-   working directory or treat a search/glob miss as proof that it is absent.
+2. Before loading or running any adapter-declared procedure, resource, or script, resolve its relative path from the adapter file's directory, verify that the resolved target exists and remains inside the adapter authority root, and use that resolved target. Never reinterpret it from the session working directory or treat a search/glob miss as proof that it is absent.
 3. For an independently executed gate, treat `runtime` as provenance only.
    Never search for or invoke it as a tool. Invoke the concrete
    `launcher.target` according to `launcher.kind`, substitute declared argument
@@ -33,7 +29,9 @@ declared planning set.
 10. Run `review/v1` through the plan adapter over the complete planning set.
 11. Apply accepted findings, rerun affected gates, and repeat final review.
 12. Use the audit adapter for a selected material plan-review report.
-13. Publish links, shape, drift, and derived state; hand task candidates to a
+13. Execute the profile-bound `workflowLearningContract` after that terminal
+   report and project its validated record through the audit adapter.
+14. Publish links, shape, drift, and derived state; hand task candidates to a
    later `acdd/task/v1` session.
 
 Use the [planning-set contract](references/planning-set.md). For a self-contained

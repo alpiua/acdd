@@ -6,6 +6,7 @@ title: Lightweight chore and documentation delivery
 capabilityContract: ../../contracts/task/v1.yaml
 adapterContract: ../../contracts/adapter/v1.yaml
 receiptContract: ../../contracts/receipt/task/v1-light.yaml
+workflowLearningContract: ../../contracts/workflow-learning/v1.yaml
 routing: ../../routing/task/v1-light.yaml
 gates:
   - {id: architecture-light/v1, queue: 20, name: Lightweight architecture scope, purpose: Bind limited-radius owners, impact, and optional structural invariants before implementation., capabilities: [task_read, impact, source_map, docs_search, task_write], guidance: {skill: acdd-task, prompt: Record affected domains, owners, propagation, authorization, proof IDs, and blockers for a limited-radius change.}}

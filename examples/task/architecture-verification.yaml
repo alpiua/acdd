@@ -4,16 +4,16 @@ kind: architecture-verification
 id: example/architecture-verification/v1
 inspectors:
   - id: contract
-    covers: [contract, transport, red-mappings, persisted-contracts]
+    covers: [contract, canonical-owner, contract-propagation, canonical-normalization, transport, persisted-contract-parity, red-mappings, persisted-contracts]
     authority: [task contract, public types, transport schema, persisted-contract definitions, RED proof definitions]
   - id: authority
-    covers: [authority, identity, fail-before-io]
+    covers: [authority, identity, authority-identity, authorization-before-selection, negative-cross-boundary-proof, fail-before-io]
     authority: [authorization policy, request identity, validation order]
   - id: callers
-    covers: [direct-callers, alternate-paths, retry, cache]
+    covers: [production-path, direct-callers, alternate-paths, alternate-path-compatibility, impact-scope, retry, cache, terminal-projection-truth]
     authority: [production callers, alternate entry points, retry and cache lifecycle]
   - id: persistence
-    covers: [lifecycle, backend-parity, persisted-contracts]
+    covers: [lifecycle, lifecycle-failure-rollback-cleanup, backend-parity, persisted-contracts, persisted-contract-parity, contradiction-blockers, terminal-outcome-truth]
     authority: [producers, writers, schemas, migrations, readers, production backends, lifecycle proofs]
 inspectorPolicy:
   readOnly: true

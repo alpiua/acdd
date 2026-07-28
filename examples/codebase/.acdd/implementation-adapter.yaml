@@ -47,4 +47,5 @@ gateProcedures:
 constraints:
   - Replace example paths and commands with canonical codebase owners.
   - Preserve unrelated worktree changes.
+  - Prove each runtime claim through a live caller and its owning repository gate.
   - Record unavailable infrastructure as evidence; do not convert it into a passing gate.

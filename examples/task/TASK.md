@@ -50,6 +50,14 @@ The example uses one canonical owner and no alternate writer.
 
 `lifecycle.example` → `proof.example-parity`.
 
+## Proof obligation mapping
+
+| Proof ID | Boundary | Required scenarios | Execution evidence |
+|---|---|---|---|
+| `proof.example-red` | canonical owner | invalid input → typed reject; zero mutation | `pending` |
+| `proof.example-scope` | authority boundary | cross-scope input → indistinguishable reject; zero I/O | `pending` |
+| `proof.example-parity` | persistence boundary | concurrent claim → one mutation and typed loser reread | `pending` |
+
 ## G0 completeness barrier
 
 All example decisions and proofs must resolve before implementation.

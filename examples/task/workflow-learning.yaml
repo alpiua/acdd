@@ -1,0 +1,12 @@
+---
+apiVersion: acdd/workflow-learning/v1
+kind: workflow-learning
+status: analyzed
+guidanceSnapshot: acdd/architecture-guidance/v1
+candidates:
+  - id: authorized-selection-order
+    sourceFindings: [F-EXAMPLE-1, F-EXAMPLE-2]
+    missedInvariant: Authorization filtering must precede final ranking and limiting.
+    prevention: Add an adversarial proof with nearer unauthorized candidates and a farther authorized result.
+    scope: canonical
+    disposition: advisory
