@@ -31,6 +31,19 @@ Receipts have no wall-clock expiry. `recordedAt` records provenance, not a TTL.
 The fingerprint, contract revision, and declared inputs determine freshness.
 An owner adapter may require a fresh run for volatile external evidence.
 
+The status vocabulary is fixed. `pending` carries no evidence. `blocked` and
+`partial` are evidence-bearing non-terminal statuses: a `partial` row records
+complete inline evidence for a proven sub-scope, that evidence stays valid
+under ordinary successor invalidation, and closure remains blocked until every
+gate reaches a terminal status. Unreviewed G1 amendments do not invalidate a
+partial receipt.
+
+`review/v1` is never invalidated by `accepted-review-findings`: accepting
+findings must not invalidate the review that produced them. A repeat review is
+driven by upstream gate reruns through `successorInvalidation` — remediation
+edits source or tests, those inputs invalidate the affected proof gates, and
+the review reruns as their successor.
+
 Evidence is validated against the contract revision it was issued under, declared
 as `contractRevision`. It defaults to the current revision, and a task in delivery
 must use the current revision, so a tightened contract cannot be dodged by

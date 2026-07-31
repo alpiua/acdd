@@ -18,6 +18,3 @@ gates:
   - {id: release/v1, queue: 70, name: Release gate, purpose: Run the exact bounded repository gate., capabilities: [run_gate, task_write], guidance: {skill: acdd-task, prompt: Run and record the task-appropriate release command.}}
   - {id: review/v1, queue: 80, name: Terminal review, purpose: Classify independent findings against the approved task contract., capabilities: [independent_review, review_execution, task_write], guidance: {skill: acdd-task, prompt: Run the adapter-selected review mode through terminal completion, resolve accepted findings, and record residual risk or blockers.}}
   - {id: handoff/v1, queue: 90, name: Handoff checkpoint, purpose: Confirm current evidence and honest blockers., capabilities: [task_read, task_write], guidance: {skill: acdd-task, prompt: Record a final checkpoint and close only when blockers are empty.}}
-closure:
-  requiredGates: [matrix/v1, architecture/v1, red/v1, runtime/v1, parity/v1, security/v1, release/v1, review/v1, handoff/v1]
-  generatedRequiredGates: true

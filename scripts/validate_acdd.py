@@ -13,7 +13,12 @@ from pathlib import Path, PurePosixPath
 
 import yaml
 
-from acdd_document import DocumentError, GatePolicy, validate_document
+from acdd_document import (
+    DocumentError,
+    GatePolicy,
+    PLAN_APPLICABILITY_POLICY,
+    validate_document,
+)
 from acdd_fingerprint import (
     architecture_authority_ids,
     parse_architecture_amendments,
@@ -388,10 +393,15 @@ def load_core(profile_path: Path = DEFAULT_PROFILE) -> CoreContract:
     if queues != sorted(queues) or len(queues) != len(set(queues)):
         raise ContractError("profile.gates: queues must be unique and ordered")
     closure = profile.get("closure")
-    if not isinstance(closure, dict) or closure.get("generatedRequiredGates") is not True:
-        raise ContractError("closure.generatedRequiredGates must be true")
-    if _string_list(closure.get("requiredGates"), "closure.requiredGates") != gate_ids:
-        raise ContractError("closure.requiredGates must exactly preserve profile gate order")
+    if closure is not None:
+        # Optional advisory block only: required gates are derived from
+        # profile.gates, so a declared list must never diverge from it.
+        if not isinstance(closure, dict):
+            raise ContractError("closure must be a mapping")
+        if "requiredGates" in closure and _string_list(
+            closure.get("requiredGates"), "closure.requiredGates"
+        ) != gate_ids:
+            raise ContractError("closure.requiredGates must exactly preserve profile gate order")
 
     routes = routing.get("routes")
     if not isinstance(routes, dict) or set(routes) != set(gate_ids):
@@ -430,6 +440,11 @@ def load_core(profile_path: Path = DEFAULT_PROFILE) -> CoreContract:
     pending, blocking = receipt.get("pendingStatus"), receipt.get("blockingStatus")
     if not isinstance(pending, str) or not isinstance(blocking, str) or not pending or not blocking or pending == blocking:
         raise ContractError("receipt pending and blocking statuses must be distinct")
+    partial = receipt.get("partialStatus")
+    if partial is not None and (
+        not isinstance(partial, str) or not partial or partial in {pending, blocking}
+    ):
+        raise ContractError("receipt partial status must be distinct from pending/blocking")
     for key, sample in (("fingerprintPattern", "sha256:" + "0" * 64), ("recordedAtPattern", "2026-01-01T00:00:00Z")):
         try:
             pattern = re.compile(str(receipt.get(key, "")))
@@ -504,18 +519,8 @@ def load_core(profile_path: Path = DEFAULT_PROFILE) -> CoreContract:
             validate_graph(successor_graph, tuple(gate_ids))
         except InvalidationError as exc:
             raise ContractError(str(exc)) from exc
-    if api_version == "acdd/task/v1":
-        applicability = receipt.get("inapplicablePolicy")
-        if not isinstance(applicability, dict):
-            raise ContractError("receipt inapplicablePolicy is required for task/v1")
-        if set(applicability) != {
-            "gates",
-            "engines",
-            "reasonCodes",
-            "forbiddenImpactAxes",
-        }:
-            raise ContractError("receipt inapplicablePolicy has invalid fields")
-        expected_applicability = {
+    expected_applicability_by_profile = {
+        "acdd/task/v1": {
             "gates": {"parity/v1", "security/v1"},
             "engines": {"code-map", "impact-register"},
             "reasonCodes": {
@@ -527,9 +532,36 @@ def load_core(profile_path: Path = DEFAULT_PROFILE) -> CoreContract:
                 "multi-backend-storage",
                 "multi-backend",
             },
-        }
+        },
+        "acdd/plan/v1": {
+            "gates": {"roadmap-shape/v1", "milestone-shape/v1"},
+            "engines": {"planning-set"},
+            "reasonCodes": {
+                "roadmap-shape.no_roadmap_or_phase_artifact_in_set",
+                "milestone-shape.no_milestone_or_task_artifact_in_set",
+            },
+            "forbiddenImpactAxes": set(),
+        },
+    }
+    expected_applicability = expected_applicability_by_profile.get(api_version)
+    if expected_applicability is not None:
+        applicability = receipt.get("inapplicablePolicy")
+        if not isinstance(applicability, dict):
+            raise ContractError(f"receipt inapplicablePolicy is required for {api_version}")
+        if set(applicability) != {
+            "gates",
+            "engines",
+            "reasonCodes",
+            "forbiddenImpactAxes",
+        }:
+            raise ContractError("receipt inapplicablePolicy has invalid fields")
         for field, expected_values in expected_applicability.items():
-            values = set(_string_list(applicability.get(field), f"receipt inapplicablePolicy.{field}"))
+            raw_values = applicability.get(field)
+            values = (
+                set()
+                if raw_values == [] and not expected_values
+                else set(_string_list(raw_values, f"receipt inapplicablePolicy.{field}"))
+            )
             if values != expected_values:
                 raise ContractError(
                     f"receipt inapplicablePolicy.{field} must be {sorted(expected_values)}"
@@ -550,6 +582,8 @@ def load_core(profile_path: Path = DEFAULT_PROFILE) -> CoreContract:
             raise ContractError(f"receipt {gate_id}.terminalStatuses must be {expected}")
         if pending in statuses or blocking in statuses:
             raise ContractError(f"receipt {gate_id}: pending/blocking cannot be terminal")
+        if partial is not None and partial in statuses:
+            raise ContractError(f"receipt {gate_id}: partial cannot be terminal")
     return CoreContract(
         profile_path=profile_path,
         profile=profile,
@@ -774,6 +808,25 @@ def _validate_executor_gate_procedures(
                 raise ContractError(f"{label}.{gate_id}.{launcher_name} tool {launcher_target!r} must be admitted")
             if launcher_kind == "command" and launcher_target in admit | deny:
                 raise ContractError(f"{label}.{gate_id}.{launcher_name} command {launcher_target!r} must not be represented as a child tool")
+        if gate_id in {"architecture/v1", "review/v1"}:
+            # Verification strength is declared authority, not prose: a receipt
+            # is only as strong as the class its executor adapter declares, and
+            # the declared class is revalidated on every validate_acdd run.
+            verification_class = procedure.get("verificationClass")
+            allowed_classes = {"full-wave", "single-pass", "tool-review"}
+            if verification_class not in allowed_classes:
+                raise ContractError(
+                    f"{label}.{gate_id}.verificationClass must be one of {sorted(allowed_classes)}"
+                )
+            if verification_class == "full-wave":
+                if gate_id != "architecture/v1":
+                    raise ContractError(f"{label}.{gate_id} cannot declare full-wave verification")
+                if not has_launchers:
+                    raise ContractError(
+                        f"{label}.{gate_id} full-wave verification requires inspector and coordinator launchers"
+                    )
+            if is_task_architecture and verification_class != "full-wave":
+                raise ContractError("task architecture/v1 requires verificationClass: full-wave")
         if gate_id == "architecture/v1":
             if any(item["kind"] != "command" for item in launchers.values()):
                 raise ContractError("architecture/v1 must use concrete command launchers")
@@ -1277,6 +1330,7 @@ def main(argv: list[str] | None = None) -> int:
                 adapters=adapter_paths,
                 workspace_root=args.workspace_root.resolve(),
             )
+        is_plan = core.profile.get("apiVersion") == "acdd/plan/v1"
         validate_document(
             document=doc_path,
             profile=core.profile_path,
@@ -1284,8 +1338,9 @@ def main(argv: list[str] | None = None) -> int:
             adapters=adapter_paths,
             workspace_root=args.workspace_root.resolve(),
             policies=_gate_policies(core),
-            plan=core.profile.get("apiVersion") == "acdd/plan/v1",
+            plan=is_plan,
             impact_axes=_impact_axes(core, adapters, args.workspace_root.resolve()),
+            applicability_policy=PLAN_APPLICABILITY_POLICY if is_plan else None,
             architecture_verification_schema=core.architecture_verification_schema,
             architecture_verification_contract=_architecture_verification_contract(
                 core, adapters, args.workspace_root.resolve()

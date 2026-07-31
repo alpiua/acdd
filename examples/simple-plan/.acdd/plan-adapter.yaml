@@ -24,6 +24,7 @@ resources:
 gateProcedures:
   architecture/v1:
     operation: architecture-verify
+    verificationClass: single-pass
     runtime: pi
     launcher:
       kind: command
@@ -36,6 +37,7 @@ gateProcedures:
     scope: bounded architecture coherence of the embedded plan
   review/v1:
     operation: closure-plan-review
+    verificationClass: tool-review
     runtime: pi-review-agents
     launcher:
       kind: tool

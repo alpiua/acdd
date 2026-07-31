@@ -23,6 +23,7 @@ roles:
   plan: [plan_read, plan_write, evidence_map, architecture_map, impact, validate_plan, validate_roadmap, validate_milestone, validate_decomposition, publish_plan, independent_review, review_execution]
   audit: [audit_publish]
 optionalRoles: [audit]
+verificationClasses: [full-wave, single-pass, tool-review]
 writePolicy:
   defaultAllow: ["**"]
   protectedDeny: [.agents/**, "**/.agents/**", AGENTS.md, "**/AGENTS.md"]
@@ -38,6 +39,7 @@ rules:
   - An adapter may strengthen a gate but may not remove or reorder profile gates.
   - Every gate route names one executorAdapter selected from its routed adapters.
   - The executor adapter owns the gate procedure; other routed adapters contribute capabilities and authority only.
+  - Executor-owned architecture/v1 and review/v1 procedures declare a verificationClass; full-wave binds inspector and coordinator launchers and is mandatory for task-profile architecture/v1, so a receipt cannot be laundered through a weaker launcher than its adapter declares.
   - The architecture executor binds exact-text, structural-search, and dependency-impact capabilities to actual host tools; profiles and receipts do not require universal tool names.
   - Runtime provenance is recorded, but architecture PASS is accepted by capability, isolation, read-only, partition-coverage, and single-verdict validation.
   - Core profiles require impact and terminal independent-review semantics; implementation and plan adapters select their owner review runtime.

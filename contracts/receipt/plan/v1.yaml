@@ -4,9 +4,23 @@ kind: receipt-contract
 requiredFields: [gate, status, evidence, inputFingerprint, recordedAt]
 pendingStatus: pending
 blockingStatus: blocked
+# Evidence-bearing non-terminal status: a sub-scope is proven and its evidence
+# stays valid, but closure remains blocked until every gate reaches a terminal
+# status. A partial row carries the same requiredFields as a terminal receipt.
+partialStatus: partial
 fingerprintPattern: '^sha256:[0-9a-f]{64}$'
 recordedAtPattern: '^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$'
 invalidationInputs: [source, test, configuration, generated, dependency, environment, accepted-review-findings]
+# Structural shape gates may be retired only when the planning set itself proves
+# no artifact of that kind exists. Eligibility is derived from the bound plan
+# frontmatter planning_set by the validator, never from agent prose.
+inapplicablePolicy:
+  gates: [roadmap-shape/v1, milestone-shape/v1]
+  engines: [planning-set]
+  reasonCodes:
+    - roadmap-shape.no_roadmap_or_phase_artifact_in_set
+    - milestone-shape.no_milestone_or_task_artifact_in_set
+  forbiddenImpactAxes: []
 gatePolicies:
   intent/v1: {evidenceMode: basis, invalidationInputs: [dependency]}
   evidence/v1: {evidenceMode: basis, invalidationInputs: [source, test, configuration, generated, dependency, environment, accepted-review-findings]}
@@ -15,7 +29,9 @@ gatePolicies:
   roadmap-shape/v1: {evidenceMode: basis, invalidationInputs: [source, dependency, accepted-review-findings]}
   milestone-shape/v1: {evidenceMode: basis, invalidationInputs: [source, dependency, accepted-review-findings]}
   decomposition/v1: {evidenceMode: basis, invalidationInputs: [source, dependency, accepted-review-findings]}
-  review/v1: {evidenceMode: live, invalidationInputs: [source, test, configuration, generated, dependency, environment, accepted-review-findings]}
+  review/v1: {evidenceMode: live, invalidationInputs: [source, test, configuration, generated, dependency, environment]}
+  # Repeat review is driven by upstream gate reruns via successorInvalidation;
+  # accepting findings must never invalidate the review that produced them.
   publish/v1: {evidenceMode: live, invalidationInputs: [source, test, configuration, generated, dependency, environment, accepted-review-findings]}
   handoff/v1: {evidenceMode: live, invalidationInputs: [source, test, configuration, generated, dependency, environment, accepted-review-findings]}
 terminalStatuses:

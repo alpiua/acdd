@@ -7,6 +7,8 @@ from datetime import datetime
 from pathlib import Path
 from uuid import UUID
 
+import yaml
+
 from acdd_fingerprint import (
     DIGEST_RE,
     G0_BASELINE_SECTION,
@@ -72,11 +74,13 @@ REVISION_2_REVIEW_FIELDS = frozenset(
 
 
 INAPPLICABLE_GATES = frozenset({"parity/v1", "security/v1"})
-INAPPLICABLE_ENGINES = frozenset({"code-map", "impact-register"})
+INAPPLICABLE_ENGINES = frozenset({"code-map", "impact-register", "planning-set"})
 INAPPLICABLE_REASON_CODES = frozenset(
     {
         "parity.single_backend_no_dual_store",
         "security.no_auth_identity_payload_or_egress_in_radius",
+        "roadmap-shape.no_roadmap_or_phase_artifact_in_set",
+        "milestone-shape.no_milestone_or_task_artifact_in_set",
     }
 )
 FORBIDDEN_INAPPLICABLE_AXES = frozenset(
@@ -87,6 +91,56 @@ INAPPLICABLE_REASON_CODES_BY_GATE = {
     "security/v1": frozenset(
         {"security.no_auth_identity_payload_or_egress_in_radius"}
     ),
+}
+
+# Receipt statuses that never close a gate. pending carries no evidence;
+# blocked and partial carry complete inline evidence, and partial additionally
+# asserts that a proven sub-scope stays valid while closure remains blocked.
+NONTERMINAL_STATUSES = frozenset({"pending", "blocked", "partial"})
+
+
+@dataclass(frozen=True)
+class ApplicabilityPolicy:
+    gates: frozenset[str]
+    engines: frozenset[str]
+    reason_codes: frozenset[str]
+    reason_codes_by_gate: dict[str, frozenset[str]]
+    forbidden_axes: frozenset[str]
+
+
+TASK_APPLICABILITY_POLICY = ApplicabilityPolicy(
+    gates=INAPPLICABLE_GATES,
+    engines=INAPPLICABLE_ENGINES,
+    reason_codes=INAPPLICABLE_REASON_CODES,
+    reason_codes_by_gate=INAPPLICABLE_REASON_CODES_BY_GATE,
+    forbidden_axes=FORBIDDEN_INAPPLICABLE_AXES,
+)
+
+PLAN_APPLICABILITY_POLICY = ApplicabilityPolicy(
+    gates=frozenset({"roadmap-shape/v1", "milestone-shape/v1"}),
+    engines=frozenset({"planning-set"}),
+    reason_codes=frozenset(
+        {
+            "roadmap-shape.no_roadmap_or_phase_artifact_in_set",
+            "milestone-shape.no_milestone_or_task_artifact_in_set",
+        }
+    ),
+    reason_codes_by_gate={
+        "roadmap-shape/v1": frozenset(
+            {"roadmap-shape.no_roadmap_or_phase_artifact_in_set"}
+        ),
+        "milestone-shape/v1": frozenset(
+            {"milestone-shape.no_milestone_or_task_artifact_in_set"}
+        ),
+    },
+    forbidden_axes=frozenset(),
+)
+
+# planning_set fields that must be empty before a structural shape gate may be
+# retired as inapplicable; eligibility is derived, never narrated.
+PLAN_SHAPE_INAPPLICABLE_FIELDS = {
+    "roadmap-shape/v1": ("roadmap", "phases"),
+    "milestone-shape/v1": ("milestones", "task_drafts"),
 }
 
 
@@ -270,13 +324,22 @@ def _parse_applicability(value: object, label: str) -> dict[str, object]:
 
 
 def validate_inapplicable_evidence(
-    *, gate: str, applicability: object, impact_axes: frozenset[str]
+    *,
+    gate: str,
+    applicability: object,
+    impact_axes: frozenset[str],
+    policy: ApplicabilityPolicy = TASK_APPLICABILITY_POLICY,
 ) -> None:
-    if gate not in INAPPLICABLE_GATES:
+    if gate not in policy.gates:
         raise DocumentError(f"{gate} cannot be marked inapplicable")
     item = _parse_applicability(applicability, f"{gate}.applicability")
+    engine = _string(item.get("engine"), f"{gate}.applicability.engine")
+    if engine not in policy.engines:
+        raise DocumentError(
+            f"{gate}.applicability.engine is not valid for this gate"
+        )
     reason_code = _string(item.get("reasonCode"), f"{gate}.applicability.reasonCode")
-    if reason_code not in INAPPLICABLE_REASON_CODES_BY_GATE[gate]:
+    if reason_code not in policy.reason_codes_by_gate[gate]:
         raise DocumentError(
             f"{gate}.applicability.reasonCode is not valid for this gate"
         )
@@ -290,10 +353,40 @@ def validate_inapplicable_evidence(
         axis.strip().lower().replace("_", "-").replace(" ", "-")
         for axis in impact_axes
     }
-    forbidden = normalized & FORBIDDEN_INAPPLICABLE_AXES
+    forbidden = normalized & policy.forbidden_axes
     if forbidden:
         raise DocumentError(
             f"{gate}.inapplicable is forbidden for impact axes {sorted(forbidden)}"
+        )
+
+
+def validate_plan_shape_inapplicable(text: str, *, gate: str) -> None:
+    """Derive shape-gate eligibility from the plan frontmatter planning_set.
+
+    A structural shape gate may retire only when the planning set itself
+    declares no artifact of that kind; agent prose is never accepted.
+    """
+    fields = PLAN_SHAPE_INAPPLICABLE_FIELDS.get(gate)
+    if fields is None:
+        return
+    if not text.startswith("---"):
+        raise DocumentError(
+            f"receipt {gate}: inapplicable requires plan frontmatter planning_set proof"
+        )
+    frontmatter = text.split("---", 2)[1]
+    try:
+        data = yaml.safe_load(frontmatter)
+    except yaml.YAMLError as exc:
+        raise DocumentError(f"plan frontmatter is invalid YAML: {exc}") from exc
+    planning_set = data.get("planning_set") if isinstance(data, dict) else None
+    if not isinstance(planning_set, dict):
+        raise DocumentError(
+            f"receipt {gate}: inapplicable requires a planning_set manifest"
+        )
+    declared = [field for field in fields if planning_set.get(field)]
+    if declared:
+        raise DocumentError(
+            f"receipt {gate}: cannot be inapplicable while planning_set declares {declared}"
         )
 
 
@@ -1013,7 +1106,7 @@ def _validate_architecture_amendments(
             "handoff/v1",
         ):
             receipt = receipt_map.get(gate)
-            if receipt is not None and receipt.status not in {"pending", "blocked"}:
+            if receipt is not None and receipt.status not in NONTERMINAL_STATUSES:
                 raise DocumentError(
                     f"unreviewed architecture amendments {unresolved} block {gate}"
                 )
@@ -1143,7 +1236,7 @@ def _validate_contract_changes(
             reset_from = gate_order.index("matrix/v1")
             receipt_map = {receipt.gate: receipt for receipt in receipts}
             for gate in gate_order[reset_from:]:
-                if receipt_map[gate].status not in {"pending", "blocked"}:
+                if receipt_map[gate].status not in NONTERMINAL_STATUSES:
                     raise DocumentError(
                         f"semantic-change requires nonterminal receipt {gate}"
                     )
@@ -1164,6 +1257,7 @@ def validate_document(
     policies: tuple[GatePolicy, ...],
     plan: bool,
     impact_axes: frozenset[str],
+    applicability_policy: ApplicabilityPolicy | None = None,
     architecture_verification_schema: dict[str, object] | None = None,
     architecture_verification_contract: dict[str, object] | None = None,
     reviewing_amendment: str | None = None,
@@ -1247,7 +1341,7 @@ def validate_document(
     terminal_seen = True
     for policy in policies:
         receipt = receipt_map[policy.gate]
-        allowed_statuses = {"pending", "blocked"} | set(policy.terminal_statuses)
+        allowed_statuses = set(NONTERMINAL_STATUSES) | set(policy.terminal_statuses)
         if receipt.status not in allowed_statuses:
             raise DocumentError(
                 f"receipt {policy.gate}: invalid status {receipt.status!r}"
@@ -1329,7 +1423,10 @@ def validate_document(
                 else None
             )
         legacy_architecture_fingerprint: str | None = None
-        if policy.gate == "architecture/v1":
+        if policy.gate == "architecture/v1" and not plan:
+            # Task G0 binds architecture receipts to the semantic candidate
+            # fingerprint; plans have no G0 sections, so their architecture
+            # freshness uses the ordinary declared-input basis below.
             architecture_candidate = fingerprint_architecture_candidate(
                 document=document,
                 adapters=adapters,
@@ -1403,8 +1500,8 @@ def validate_document(
             "intent/v1": frozenset({"basis"}),
             "evidence/v1": frozenset({"basis"}),
             "plan-shape/v1": frozenset({"basis"}),
-            "roadmap-shape/v1": frozenset({"basis", "rationale"}),
-            "milestone-shape/v1": frozenset({"basis", "rationale"}),
+            "roadmap-shape/v1": frozenset({"basis", "rationale", "command"}),
+            "milestone-shape/v1": frozenset({"basis", "rationale", "command"}),
             "decomposition/v1": frozenset({"basis"}),
         }
         allowed_kinds = expected_kinds.get(policy.gate, frozenset({"command"}))
@@ -1426,7 +1523,10 @@ def validate_document(
                 gate=policy.gate,
                 applicability=applicability,
                 impact_axes=impact_axes,
+                policy=applicability_policy or TASK_APPLICABILITY_POLICY,
             )
+            if plan:
+                validate_plan_shape_inapplicable(text, gate=policy.gate)
         elif applicability is not None:
             raise DocumentError(
                 f"evidence {gate_evidence.id}: applicability is only valid for inapplicable status"

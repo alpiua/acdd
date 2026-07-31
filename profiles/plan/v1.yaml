@@ -19,6 +19,3 @@ gates:
   - {id: review/v1, queue: 80, name: Independent planning review, purpose: Challenge the complete planning set against live evidence., capabilities: [independent_review, review_execution, plan_write], guidance: {skill: acdd-plan, prompt: Run the adapter-selected review mode through terminal completion and resolve accepted findings across the complete planning set.}}
   - {id: publish/v1, queue: 90, name: Publish, purpose: Validate links metadata shape drift and refresh adapter-owned derived state., capabilities: [publish_plan, plan_write], guidance: {skill: acdd-plan, prompt: Publish only current blocker-free planning artifacts.}}
   - {id: handoff/v1, queue: 100, name: Handoff, purpose: Record receipts blockers changed artifacts and task-flow candidates., capabilities: [plan_read, plan_write], guidance: {skill: acdd-plan, prompt: Record final receipts and inactive acdd/task/v1 candidates.}}
-closure:
-  requiredGates: [intent/v1, evidence/v1, architecture/v1, plan-shape/v1, roadmap-shape/v1, milestone-shape/v1, decomposition/v1, review/v1, publish/v1, handoff/v1]
-  generatedRequiredGates: true

@@ -4,6 +4,10 @@ kind: receipt-contract
 requiredFields: [gate, status, evidence, inputFingerprint, recordedAt]
 pendingStatus: pending
 blockingStatus: blocked
+# Evidence-bearing non-terminal status: a sub-scope is proven and its evidence
+# stays valid, but closure remains blocked until every gate reaches a terminal
+# status. A partial row carries the same requiredFields as a terminal receipt.
+partialStatus: partial
 fingerprintPattern: '^sha256:[0-9a-f]{64}$'
 recordedAtPattern: '^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$'
 invalidationInputs: [source, test, configuration, generated, dependency, environment, accepted-review-findings]
@@ -41,7 +45,9 @@ gatePolicies:
     invalidationInputs: [source, test, configuration, generated, dependency, environment, accepted-review-findings]
     invalidationClasses: [security, auth, payload, egress]
   release/v1: {evidenceMode: live, invalidationInputs: [source, test, configuration, generated, dependency, environment, accepted-review-findings]}
-  review/v1: {evidenceMode: live, invalidationInputs: [source, test, configuration, generated, dependency, environment, accepted-review-findings]}
+  # Repeat review is driven by upstream gate reruns via successorInvalidation;
+  # accepting findings must never invalidate the review that produced them.
+  review/v1: {evidenceMode: live, invalidationInputs: [source, test, configuration, generated, dependency, environment]}
   handoff/v1: {evidenceMode: live, invalidationInputs: [source, test, configuration, generated, dependency, environment, accepted-review-findings]}
 inapplicablePolicy:
   gates: [parity/v1, security/v1]

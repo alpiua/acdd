@@ -29,6 +29,7 @@ gateProcedures:
     backendPaths: [src/**]
   review/v1:
     operation: closure-code-review
+    verificationClass: tool-review
     runtime: pi-review-agents
     launcher:
       kind: tool

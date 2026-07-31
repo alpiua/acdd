@@ -9,7 +9,7 @@ from pathlib import Path
 
 import yaml
 
-from acdd_document import DocumentError, parse_receipts
+from acdd_document import DocumentError, NONTERMINAL_STATUSES, parse_receipts
 from acdd_fingerprint import FingerprintError, markdown_sections, parse_inputs
 
 PROFILE = "acdd/plan/v1"
@@ -193,7 +193,7 @@ def validate_plan(path: Path, *, strict: bool) -> None:
         terminal = {"pass"}
         if receipt.gate == "roadmap-shape/v1":
             terminal.add("inapplicable")
-        if receipt.status not in terminal | {"pending", "blocked"}:
+        if receipt.status not in terminal | NONTERMINAL_STATUSES:
             raise PlanError(
                 f"{receipt.gate} has invalid receipt status {receipt.status!r}"
             )

@@ -28,6 +28,7 @@ inputAuthorities:
 gateProcedures:
   architecture/v1:
     operation: architecture-verify
+    verificationClass: full-wave
     contract: ../../task/architecture-verification.yaml
     runtime: pi
     launchers:
