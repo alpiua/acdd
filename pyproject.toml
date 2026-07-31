@@ -1,0 +1,19 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "acdd-v2"
+version = "0.3.0"
+description = "Lean ACDD validator and evidence recorder"
+requires-python = ">=3.11"
+dependencies = ["PyYAML>=6.0"]
+
+[project.scripts]
+acdd = "acdd.cli:main"
+
+[tool.setuptools]
+packages = ["acdd"]
+
+[dependency-groups]
+dev = ["pytest>=8"]

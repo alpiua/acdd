@@ -1,0 +1,39 @@
+apiVersion: acdd/profile/v1
+kind: profile
+id: acdd/task/v1
+gates:
+  - id: design/v1
+    owner: task
+    checks:
+      - {id: design-basis, evidenceKind: basis, commandOutcome: success}
+      - {id: plan-shape, evidenceKind: command, commandOutcome: success}
+    invalidatesOn: [structure]
+    terminals: [pass]
+  - id: contract/v1
+    owner: task
+    checks:
+      - {id: decomposition, evidenceKind: basis, commandOutcome: success}
+      - {id: matrix, evidenceKind: basis, commandOutcome: success}
+      - {id: executable-proof, evidenceKind: command, commandOutcome: expected-failure}
+    invalidatesOn: [structure]
+    terminals: [pass]
+  - id: build/v1
+    owner: implementation
+    checks:
+      - {id: runtime-and-integration, evidenceKind: command, commandOutcome: success}
+    invalidatesOn: [source, test, configuration, generated, dependency]
+    terminals: [pass, inapplicable]
+    inapplicableReasonCodes: [build.no-runnable-source]
+  - id: review/v1
+    owner: review
+    checks:
+      - {id: independent-review, evidenceKind: review, commandOutcome: success}
+    invalidatesOn: [source, test, configuration, dependency]
+    reviewDimensions: [parity, security]
+    terminals: [pass]
+  - id: handoff/v1
+    owner: task
+    checks:
+      - {id: repository-handoff, evidenceKind: command, commandOutcome: success}
+    invalidatesOn: [source, test, configuration, dependency]
+    terminals: [pass]

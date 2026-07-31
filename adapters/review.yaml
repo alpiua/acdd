@@ -1,0 +1,16 @@
+apiVersion: acdd/adapter/v1
+id: independent-reviewer
+role: review
+artifactDir: artifacts
+gates:
+  review/v1:
+    checks:
+      # review-kind: core never executes this argv; it is the unconditional
+      # launcher template for the agent. Run once per session; append records
+      # to one JSONL transcript. Terminal must be review_terminal with
+      # verdict=pass, author/reviewer UUIDs matching `acdd review` flags, and
+      # performedChecks covering every reviewDimension. Placeholders:
+      # {document}, {evidenceId}, {reviewerSessionUuid}, {prompt}.
+      independent-review:
+        argv: [pi, --print, --session-id, "{reviewerSessionUuid}",
+               --tools, "read,grep,find,ls,mcp", "{prompt}"]

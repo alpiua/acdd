@@ -1,0 +1,14 @@
+apiVersion: acdd/adapter/v1
+id: product-implementation
+role: implementation
+artifactDir: artifacts
+gates:
+  build/v1:
+    checks:
+      # Adjustable per repository:
+      #   timeoutSeconds — bound for the integrated proof (default 300)
+      #   promptAppend   — extra agent context, hashed into the fingerprint
+      runtime-and-integration:
+        cwd: .
+        argv: [uv, run, pytest, -q]
+        timeoutSeconds: 900

@@ -1,0 +1,17 @@
+apiVersion: acdd/adapter/v1
+id: product-task
+role: task
+artifactDir: artifacts
+gates:
+  design/v1:
+    checks:
+      design-basis: {cwd: ., argv: [python3, -m, task.design_basis, "{document}"]}
+      plan-shape: {cwd: ., argv: [python3, -m, task.plan_shape, "{document}"]}
+  contract/v1:
+    checks:
+      decomposition: {cwd: ., argv: [python3, -m, task.decompose, "{document}"]}
+      matrix: {cwd: ., argv: [python3, -m, task.matrix, "{document}"]}
+      executable-proof: {cwd: ., argv: [python3, -m, task.proof, "{document}"]}
+  handoff/v1:
+    checks:
+      repository-handoff: {cwd: ., argv: [python3, -m, task.handoff, "{document}"]}

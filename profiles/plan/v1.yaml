@@ -1,0 +1,26 @@
+apiVersion: acdd/profile/v1
+kind: profile
+id: acdd/plan/v1
+gates:
+  - id: design/v1
+    owner: plan
+    checks:
+      - {id: design-basis, evidenceKind: basis, commandOutcome: success}
+      - {id: plan-shape, evidenceKind: command, commandOutcome: success}
+    invalidatesOn: [structure]
+    terminals: [pass, inapplicable]
+    inapplicableReasonCodes: [plan.no-artifact]
+  - id: decompose/v1
+    owner: plan
+    checks:
+      - {id: decomposition, evidenceKind: basis, commandOutcome: success}
+      - {id: matrix, evidenceKind: basis, commandOutcome: success}
+    invalidatesOn: [structure]
+    terminals: [pass]
+  - id: review/v1
+    owner: review
+    checks:
+      - {id: independent-review, evidenceKind: review, commandOutcome: success}
+    invalidatesOn: [structure]
+    reviewDimensions: [completeness, consistency]
+    terminals: [pass]
