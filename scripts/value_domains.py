@@ -349,12 +349,11 @@ def parse_value_domains(
             dispositions[path] = roles
 
         discovered = _discover(workspace_root, roots=roots, terms=terms, label=label)
-        declared_discovery = set(dispositions)
-        if discovered != declared_discovery:
+        undeclared_candidates = discovered - set(dispositions)
+        if undeclared_candidates:
             raise ValueDomainError(
                 f"{label}: discovery closure mismatch "
-                f"missing={sorted(discovered - declared_discovery)} "
-                f"stale={sorted(declared_discovery - discovered)}"
+                f"missing={sorted(undeclared_candidates)}"
             )
         owned_paths = {
             path for path, roles in dispositions.items() if roles != {"unrelated"}

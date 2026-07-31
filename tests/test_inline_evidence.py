@@ -551,6 +551,25 @@ def test_persisted_contract_discovery_closes_every_pipeline_role(
     ] == [("contract.visibility", "changed", "restriction")]
 
 
+def test_persisted_contract_explicit_path_classification_does_not_require_term_match(
+    tmp_path: Path,
+) -> None:
+    text = _value_domain_text(tmp_path)
+    (tmp_path / "services" / "domain" / "public_type.py").write_text(
+        "canonical_public_type = 'closed'\n",
+        encoding="utf-8",
+    )
+    semantic = FP.semantic_task_fingerprint(text)
+
+    domains = VALUE_DOMAINS.parse_value_domains(
+        text,
+        workspace_root=tmp_path,
+        declared_paths=frozenset(item.path for item in FP.parse_inputs(text)),
+        semantic_ids=frozenset(semantic.ids),
+    )
+
+    assert [domain.id for domain in domains] == ["contract.visibility"]
+
 def test_persisted_contract_discovery_rejects_an_omitted_candidate(
     tmp_path: Path,
 ) -> None:
