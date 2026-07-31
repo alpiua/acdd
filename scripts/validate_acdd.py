@@ -608,14 +608,38 @@ def _declared_path(raw: str) -> bool:
     return not any(c.isspace() for c in raw) and not raw.startswith(("http://", "https://")) and ("/" in raw or raw.endswith((".md", ".yaml", ".yml", ".py", ".json", ".txt")))
 
 
-def _validate_declared_paths(value: object, owner: Path, label: str, *, allowed_root: Path) -> None:
+def _validate_declared_paths(
+    value: object,
+    owner: Path,
+    label: str,
+    *,
+    allowed_root: Path,
+    resolve_strings: bool = False,
+) -> None:
     if isinstance(value, dict):
         for key, child in value.items():
-            _validate_declared_paths(child, owner, f"{label}.{key}", allowed_root=allowed_root)
+            _validate_declared_paths(
+                child,
+                owner,
+                f"{label}.{key}",
+                allowed_root=allowed_root,
+                resolve_strings=resolve_strings or key == "reference",
+            )
     elif isinstance(value, list):
         for index, child in enumerate(value):
-            _validate_declared_paths(child, owner, f"{label}[{index}]", allowed_root=allowed_root)
-    elif isinstance(value, str) and _declared_path(value) and not any(marker in value for marker in ("*", "{", "<")):
+            _validate_declared_paths(
+                child,
+                owner,
+                f"{label}[{index}]",
+                allowed_root=allowed_root,
+                resolve_strings=resolve_strings,
+            )
+    elif (
+        resolve_strings
+        and isinstance(value, str)
+        and _declared_path(value)
+        and not any(marker in value for marker in ("*", "{", "<"))
+    ):
         _resolve(owner, value, label, allowed_root=allowed_root)
 
 
@@ -931,7 +955,13 @@ def load_adapter(path: Path, expected_role: str, core: CoreContract, *, allowed_
         raise ContractError(f"{path}:procedure must be a path or instruction list")
     for key in ("resources", "scripts", "skillExtensions", "gateProcedures"):
         if key in adapter:
-            _validate_declared_paths(adapter[key], path, f"{path}:{key}", allowed_root=allowed_root)
+            _validate_declared_paths(
+                adapter[key],
+                path,
+                f"{path}:{key}",
+                allowed_root=allowed_root,
+                resolve_strings=key in {"resources", "scripts"},
+            )
     if "externalMappings" in adapter:
         _validate_external_mappings(adapter["externalMappings"], f"{path}:externalMappings")
     procedures = adapter.get("gateProcedures", {})
@@ -1048,6 +1078,9 @@ def _gate_policies(core: CoreContract) -> tuple[GatePolicy, ...]:
         raw_policy = raw_policies.get(gate)
         if not isinstance(raw_policy, dict):
             raise ContractError(f"receipt {gate}: missing gate policy")
+        evidence_mode = raw_policy.get("evidenceMode")
+        if evidence_mode not in {"basis", "snapshot", "live"}:
+            raise ContractError(f"receipt {gate}: invalid evidence mode")
         classes_raw = raw_policy.get("invalidationClasses")
         invalidation_classes = None
         if classes_raw is not None:
@@ -1060,6 +1093,7 @@ def _gate_policies(core: CoreContract) -> tuple[GatePolicy, ...]:
                 terminal_statuses=frozenset(
                     _string_list(raw_terminal.get(gate), f"receipt {gate}.terminalStatuses")
                 ),
+                evidence_mode=str(evidence_mode),
                 invalidation_inputs=frozenset(
                     _string_list(
                         raw_policy.get("invalidationInputs"),

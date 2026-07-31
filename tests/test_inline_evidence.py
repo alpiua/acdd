@@ -853,17 +853,59 @@ items:
         document.read_text(encoding="utf-8") + semantic_record + amendment,
         encoding="utf-8",
     )
+    core = VALIDATOR.load_core(ROOT / "profiles" / "task" / "v1.yaml")
+    policies = {policy.gate: policy for policy in VALIDATOR._gate_policies(core)}
+    red_policy = policies["red/v1"]
+    red_fingerprint = FP.fingerprint_inputs(
+        document=document,
+        profile=core.profile_path,
+        receipt_contract=core.receipt_contract_path,
+        adapters=adapters,
+        workspace_root=tmp_path,
+        include_types=red_policy.invalidation_inputs,
+        include_classes=red_policy.invalidation_classes,
+    ).sha256
+    component_lock = "sha256:" + hashlib.sha256(
+        (tmp_path / "test.py").read_bytes()
+    ).hexdigest()
+    red_evidence = f"""---
+apiVersion: acdd/gate-evidence/v1
+kind: command
+id: red.expected
+gate: red/v1
+inputFingerprint: {red_fingerprint}
+exactCommand: pytest test.py
+recordedAt: "2026-07-23T00:00:00Z"
+exitCode: 1
+output: "PermissionDeniedError: missing capability"
+redacted: true
+result: expected_failure
+expectedException: PermissionDeniedError
+proofDefinitionFingerprint: {semantic.red_proof_sha256}
+componentLocks:
+  - path: test.py
+    sha256: {component_lock}
+"""
+    text = document.read_text(encoding="utf-8").replace(
+        "  reconciledRecommendations: []\n```",
+        f"  reconciledRecommendations: []\n{red_evidence}```",
+        1,
+    )
+    text = text.replace(
+        "| `red/v1` | `pending` | pending | `pending` | `pending` |",
+        f"| `red/v1` | `expected_failure` | evidence=red.expected | `{red_fingerprint}` | `2026-07-23T00:00:00Z` |",
+    )
+    document.write_text(text, encoding="utf-8")
     (tmp_path / "services" / "source.py").write_text(
         "changed after frozen G0\n", encoding="utf-8"
     )
-    core = VALIDATOR.load_core(ROOT / "profiles" / "task" / "v1.yaml")
     kwargs = {
         "document": document,
         "profile": core.profile_path,
         "receipt_contract": core.receipt_contract_path,
         "adapters": adapters,
         "workspace_root": tmp_path,
-        "policies": VALIDATOR._gate_policies(core),
+        "policies": tuple(policies.values()),
         "plan": False,
         "impact_axes": frozenset({"deployment"}),
         "architecture_verification_schema": core.architecture_verification_schema,

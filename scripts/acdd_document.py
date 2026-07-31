@@ -152,6 +152,7 @@ class DocumentError(ValueError):
 class GatePolicy:
     gate: str
     terminal_statuses: frozenset[str]
+    evidence_mode: str
     invalidation_inputs: frozenset[str]
     invalidation_classes: frozenset[str] | None = None
 
@@ -1454,23 +1455,21 @@ def validate_document(
                 include_types=current_inputs,
                 include_classes=current_classes,
             ).sha256
-        # Normal delivery validates every terminal receipt against current inputs.
-        # Supplemental amendment review instead validates the selected amendment
-        # against its frozen G0 fingerprint; historical receipt bytes remain
-        # evidence and must still agree with their receipt, but are not its admission
-        # snapshot. This lets redesign review precede downstream receipt refresh.
+        # Live and basis receipts must match current inputs during normal delivery.
+        # Snapshot evidence (RED) stays bound to its recorded fingerprint and component
+        # locks because implementation is expected to change those source bytes.
+        # Supplemental amendment review likewise uses historical receipts as evidence,
+        # not as the amendment admission snapshot.
         if (
             gate_evidence.input_fingerprint != receipt.input_fingerprint
             or (
                 active
+                and policy.evidence_mode != "snapshot"
                 and not (
                     g0_frozen
                     and policy.gate in {"matrix/v1", "architecture/v1"}
                 )
-                and (
-                    reviewing_amendment is None
-                    or policy.gate not in {"matrix/v1", "architecture/v1"}
-                )
+                and reviewing_amendment is None
                 and receipt.input_fingerprint
                 not in {current, legacy_architecture_fingerprint}
             )
