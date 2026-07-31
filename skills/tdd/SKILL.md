@@ -1,6 +1,6 @@
 ---
 name: tdd
-description: "Use for Red-Green-Refactor while writing or changing tests and production code."
+description: "Use for Red-Green-Refactor while writing or changing tests and production code, including fixes for accepted review findings."
 ---
 
 # TDD
@@ -17,14 +17,27 @@ done, if any, stays in the owning project — not here.
 
 ### 1. Red
 
-1. Name the behavior and fail-closed cases that matter.
-2. Write the smallest failing test.
-3. Run it; confirm failure mode is the intended one.
+1. Name the post-fix invariant and forbidden effects.
+2. Name one plausible production mutation that would violate the invariant and
+   that the regression must kill.
+3. For a review finding, reproduce its reachable failure at the owning boundary.
+   If production was already changed, temporarily apply the named mutation and
+   observe the regression fail for the intended reason before restoring Green.
+4. Assert the externally observable contract and forbidden effects. Do not use a
+   tautology, source-text assertion, private call count, mock-only wiring check,
+   timing poll, or broad output substring as the sole proof of behavior.
+5. Match the fixture to the claim: use a real composition root for wiring, real
+   persistence for transaction/durability, deterministic synchronization for
+   concurrency/lifecycle, and exact below/at/over cases for bounds.
+6. Add cases for each affected path, backend, authority mode, or compatibility
+   surface that could violate the same invariant; mark absent dimensions `N/A`.
+7. Run the smallest failing set and confirm each intended failure.
 
 ### 2. Green
 
-1. Implement the minimal production change that makes the test pass.
-2. Avoid drive-by refactors in the green step.
+1. Implement the smallest change at the canonical owner that satisfies the
+   invariant across the declared dimensions.
+2. Keep unrelated refactors out of the green step.
 
 ### 3. Refactor
 
@@ -41,6 +54,9 @@ done, if any, stays in the owning project — not here.
 ## Done
 
 - Red observed, green verified, refactor still green
+- Named mutation is killed by the regression
+- The test would still fail if the implementation merely returned or called the
+  expected shape without restoring the owning invariant
 - Fail-closed paths covered when the behavior has a gate/deny path
 - Claims match the suite that actually ran
 

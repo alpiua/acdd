@@ -1,13 +1,13 @@
 ---
 name: diagnose
-description: "Use for bugs, tracebacks, test failures, or regressions: reproduce, isolate root cause, fix without guessing."
+description: "Use for bugs, tracebacks, test failures, regressions, or accepted review findings: reproduce, cluster symptoms, isolate root cause, and fix without guessing."
 ---
 
 # Diagnose
 
 **Leading word:** root cause.
 
-Stop implementation guessing. Gather evidence, one hypothesis, minimal fix.
+Stop implementation guessing. Gather evidence, one hypothesis per root cause, and the smallest sufficient fix.
 
 ## 1. Evidence
 
@@ -18,16 +18,21 @@ Stop implementation guessing. Gather evidence, one hypothesis, minimal fix.
 
 ## 2. Hypothesis and reproduction
 
-1. Form **one** concrete root-cause hypothesis (not a symptom patch list).
-2. Add or run a minimal reproduction (targeted test or isolated command).
-3. Confirm it fails the expected way before editing production code.
+1. Cluster review findings that share a first violated invariant and owner.
+2. For each independent cluster, state one root-cause hypothesis, post-fix
+   invariant, forbidden effects, and affected dimensions.
+3. Add or run a minimal reproduction for each cluster.
+4. Confirm the expected failure before editing production code.
 
 ## 3. Fix and verify
 
-1. Fix the root cause at the owning boundary — not a local shim over the symptom.
-2. Re-run the reproduction until green.
-3. Widen checks: lint/type if touched, then the nearest suite for the area.
-4. If three fix attempts fail: stop and escalate with traceback, attempts, and current hypothesis.
+1. Fix each root cause at its owning boundary.
+2. Re-run every cluster reproduction until green.
+3. Verify affected callers, paths, backends, authority modes, and compatibility
+   surfaces; scan for obsolete behavior.
+4. Run lint/type checks when touched, then the nearest owning suite.
+5. If three fix attempts fail, stop with evidence, attempts, and the current
+   hypothesis.
 
 ## Done
 
