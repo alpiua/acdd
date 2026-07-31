@@ -196,6 +196,41 @@ def test_example_adapters_cover_routed_capabilities() -> None:
         )
 
 
+def test_declared_paths_do_not_treat_model_ids_or_arguments_as_files(
+    tmp_path: Path,
+) -> None:
+    owner = tmp_path / "implementation-adapter.yaml"
+    owner.write_text("adapter", encoding="utf-8")
+    reference = tmp_path / "review.md"
+    reference.write_text("review", encoding="utf-8")
+    procedure = {
+        "review/v1": {
+            "reference": "review.md",
+            "reviewers": [
+                {"model": "antigravity/gemini-3.6-flash-high"},
+            ],
+            "piInvocation": {
+                "arguments": ["--extension", "/opt/pi/extensions/reviewer.ts"],
+            },
+        },
+    }
+
+    MODULE._validate_declared_paths(
+        procedure,
+        owner,
+        "adapter.gateProcedures",
+        allowed_root=tmp_path,
+    )
+
+    procedure["review/v1"]["reference"] = "missing.md"
+    with pytest.raises(MODULE.ContractError, match="missing 'missing.md'"):
+        MODULE._validate_declared_paths(
+            procedure,
+            owner,
+            "adapter.gateProcedures",
+            allowed_root=tmp_path,
+        )
+
 def test_task_architecture_launchers_bind_models() -> None:
     core = MODULE.load_core(ROOT / "profiles" / "task" / "v1.yaml")
     adapter_path = ROOT / "examples" / "planner" / ".acdd" / "task-adapter.yaml"
