@@ -102,6 +102,12 @@ Each named proof belongs in one compact `Proof obligation mapping` table:
 |---|---|---|---|
 | `proof.concurrent-write` | persistence owner | one winner, typed loser, no residue | `pending` |
 
+For each proof, declare the applicable operations, live/replay/import paths,
+implementations, authority transitions, sequential/concurrent mode, terminal
+outcomes, and forbidden effects. Each declared combination is one evidence
+obligation; executing one representative combination does not cover its
+siblings. Use a bounded `N/A` only when that dimension is absent.
+
 `pending` is valid while implementation is underway. Terminal `review/v1` and
 `handoff/v1` require executable evidence. The reviewer verifies that the named
 test actually covers the declared boundary, backend, sequential/concurrent mode,

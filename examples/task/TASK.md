@@ -54,9 +54,9 @@ The example uses one canonical owner and no alternate writer.
 
 | Proof ID | Boundary | Required scenarios | Execution evidence |
 |---|---|---|---|
-| `proof.example-red` | canonical owner | invalid input → typed reject; zero mutation | `pending` |
-| `proof.example-scope` | authority boundary | cross-scope input → indistinguishable reject; zero I/O | `pending` |
-| `proof.example-parity` | persistence boundary | concurrent claim → one mutation and typed loser reread | `pending` |
+| `proof.example-red` | canonical owner | operations=create+revise; paths=live+replay; invalid input → typed reject; forbidden=mutation | `pending` |
+| `proof.example-scope` | authority boundary | authority=same+cross+revoked; cross-scope input → indistinguishable reject; forbidden=downstream I/O | `pending` |
+| `proof.example-parity` | persistence boundary | implementations=primary+alternate; mode=concurrent; one mutation and typed loser reread; forbidden=residue | `pending` |
 
 ## G0 completeness barrier
 

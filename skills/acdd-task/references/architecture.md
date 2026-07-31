@@ -110,6 +110,21 @@ Add one compact task section:
 | `proof.example` | owner boundary | adversarial scenario and exact outcome | test node; backend; mode; observed outcome, or `pending` |
 ```
 
+Expand each proof across its applicable coverage dimensions:
+
+- operations;
+- live ingress, replay, import/export, migration, cache, and fallback paths;
+- implementations or backends;
+- same-authority, cross-authority, and revoked-authority transitions;
+- sequential or concurrent execution;
+- terminal outcomes and forbidden effects.
+
+Declare only dimensions that exist for the boundary and record a bounded `N/A`
+for an absent dimension. Treat every declared cell as an independent evidence
+obligation. One executed cell closes only that cell; representative coverage
+does not close sibling operations, paths, implementations, authority
+transitions, or execution modes.
+
 Use one row per named proof; group IDs only when boundary, scenarios, and evidence
 are identical. `pending` is valid before execution. A terminal `review/v1` or
 `handoff/v1` requires every row to contain executable evidence. The validator

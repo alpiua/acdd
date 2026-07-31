@@ -238,6 +238,10 @@ The validator checks table shape, unique IDs, and coverage of `## Named proof
 IDs`. `pending` is allowed during implementation and rejected after terminal
 `review/v1` or `handoff/v1`. The implementation reviewer verifies the actual
 test node, backend, execution mode, cardinality, outcomes, and forbidden effects.
+For every proof, declare applicable operations, live/replay/import paths,
+implementations, authority transitions, execution modes, terminal outcomes, and
+forbidden effects. Each declared combination needs its own evidence or a bounded
+`N/A`; one representative combination does not close the others.
 
 ### Evidence
 
