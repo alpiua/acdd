@@ -71,9 +71,7 @@ def _walk_discover(workspace: Path) -> list[Path]:
                 ):
                     stack.append(child)
             elif (
-                not child.is_symlink()
-                and child.suffix == ".yaml"
-                and child.parent.name == ".acdd"
+                not child.is_symlink() and child.suffix == ".yaml" and child.parent.name == ".acdd"
             ):
                 found.append(child)
     return found

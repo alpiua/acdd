@@ -1,5 +1,3 @@
-from pathlib import Path
-
 import pytest
 
 from acdd.paths import resolve_profile, share_dir, share_path

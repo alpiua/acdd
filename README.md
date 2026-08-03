@@ -1,6 +1,6 @@
 # ACDD
 
-ACDD means **Architecture Contract-Driven Development**. It turns an intended
+ACDD means **Agentic Contract-Driven Development**. It turns an intended
 change into a bounded architecture contract, checks that contract against the
 live system, implements only the approved scope, and closes with current
 executable evidence. It connects existing tests, release processes, issue

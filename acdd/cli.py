@@ -22,8 +22,12 @@ def _req(parser: argparse.ArgumentParser, *flags: str) -> None:
         if flag == "--id":
             kwargs["dest"] = "evidence_id"
         parser.add_argument(flag, **kwargs)
+
+
 def _parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(prog="acdd", description="ACDD v2 — 5 gates, checks per profile, 11 invariants")
+    parser = argparse.ArgumentParser(
+        prog="acdd", description="ACDD v2 — 5 gates, checks per profile, 11 invariants"
+    )
     commands = parser.add_subparsers(dest="command", required=True)
     common = argparse.ArgumentParser(add_help=False)
     common.add_argument("document")
@@ -35,7 +39,12 @@ def _parser() -> argparse.ArgumentParser:
     _req(fingerprint, "--gate")
     record = commands.add_parser("record", parents=[common])
     _req(record, "--gate", "--check", "--id")
-    record.add_argument("--classified-ref", action="append", default=[], help="path=role; required for basis evidence")
+    record.add_argument(
+        "--classified-ref",
+        action="append",
+        default=[],
+        help="path=role; required for basis evidence",
+    )
     finalize = commands.add_parser("finalize", parents=[common])
     _req(finalize, "--gate", "--id")
     finalize.add_argument("--status", default="pass")
@@ -46,6 +55,8 @@ def _parser() -> argparse.ArgumentParser:
     subtask_contract = commands.add_parser("contract-subtask", parents=[common])
     _req(subtask_contract, "--subtask", "--id")
     return parser
+
+
 def _load_confined(role: str | None, raw_path: str, *, workspace: Path) -> Adapter:
     try:
         resolved = resolve_under(workspace, raw_path, label="adapter")
@@ -55,9 +66,12 @@ def _load_confined(role: str | None, raw_path: str, *, workspace: Path) -> Adapt
     if role is not None and adapter.role != role:
         raise AcddError(f"adapter role {adapter.role!r} does not match {role!r}")
     return adapter
+
+
 def _discover(workspace: Path, document: Path | None = None) -> list[Path]:
     if document is None:
         from .discover import _walk_discover
+
         return sorted(_walk_discover(workspace.resolve()))
     return discover_adapter_paths(workspace, document)
 
@@ -81,8 +95,10 @@ def _adapters(
         if not set(adapter.gates) & active_gates:
             continue
         if adapter.role in adapters:
-            raise AcddError(f"duplicate adapter role {adapter.role!r}: {path} and "
-                            f"{adapters[adapter.role].base_dir}")
+            raise AcddError(
+                f"duplicate adapter role {adapter.role!r}: {path} and "
+                f"{adapters[adapter.role].base_dir}"
+            )
         adapters[adapter.role] = adapter
     for item in items:
         if "=" not in item:
@@ -90,13 +106,21 @@ def _adapters(
         role, raw_path = item.split("=", 1)
         adapters[role] = _load_confined(role, raw_path, workspace=workspace)
     return list(adapters.values())
+
+
 def _owner(adapters, role):
-    return adapters.get(role) or (_ for _ in ()).throw(AcddError(f"missing adapter for owner role {role!r}"))
+    return adapters.get(role) or (_ for _ in ()).throw(
+        AcddError(f"missing adapter for owner role {role!r}")
+    )
+
+
 def _gate(profile, gate_id):
     for gate in profile.gates:
         if gate.id == gate_id:
             return gate
     raise AcddError(f"unknown gate {gate_id!r}")
+
+
 def _context(args):
     profile = load_profile(resolve_profile(args.profile))
     document = load_document(Path(args.document).resolve())
@@ -105,10 +129,14 @@ def _context(args):
         args.adapter, workspace, {gate.id for gate in profile.gates}, document=document.path
     )
     return document, profile, index_adapters(adapters), workspace, adapters
+
+
 def _gate_adapter(args, gate_id):
     document, profile, adapters, workspace, _ = _context(args)
     gate = _gate(profile, gate_id)
     return document, gate, adapters.get(gate.owner) or _owner(adapters, gate.owner), workspace
+
+
 def cmd_validate(args) -> int:
     document, profile, _, workspace, adapters = _context(args)
     errors = validate(document, profile, adapters=adapters, workspace_root=workspace)
@@ -118,54 +146,105 @@ def cmd_validate(args) -> int:
         return 1
     print("ACDD VALID")
     return 0
+
+
 def cmd_fingerprint(args) -> int:
     from .fingerprint import fingerprint_for_gate
+
     document, profile, adapters, workspace, _ = _context(args)
     gate = _gate(profile, args.gate)
     print(fingerprint_for_gate(document, gate, workspace, adapters.get(gate.owner)))
     return 0
+
+
 def cmd_record(args) -> int:
     document, profile, adapters, workspace, _ = _context(args)
     gate = _gate(profile, args.gate)
     adapter = adapters.get(gate.owner) or _owner(adapters, gate.owner)
-    classified_refs = [{"path": p, "role": r} for item in args.classified_ref
-                       for p, r in [item.split("=", 1)]
-                       if "=" in item or (_ for _ in ()).throw(AcddError("classified-ref must be path=role"))]
-    payload, succeeded = record_check(document=document, workspace_root=workspace, gate=gate,
-                                      check_id=args.check, evidence_id=args.evidence_id,
-                                      adapter=adapter, classified_refs=classified_refs)
+    classified_refs = [
+        {"path": p, "role": r}
+        for item in args.classified_ref
+        for p, r in [item.split("=", 1)]
+        if "=" in item or (_ for _ in ()).throw(AcddError("classified-ref must be path=role"))
+    ]
+    payload, succeeded = record_check(
+        document=document,
+        workspace_root=workspace,
+        gate=gate,
+        check_id=args.check,
+        evidence_id=args.evidence_id,
+        adapter=adapter,
+        classified_refs=classified_refs,
+    )
     if payload:
         print(json.dumps(payload, sort_keys=True))
     return 0 if succeeded else 1
+
 
 def cmd_contract_subtask(args) -> int:
     document, profile, owners, workspace, adapters = _context(args)
     gate = _gate(profile, "contract/v1")
     adapter = owners.get(gate.owner) or _owner(owners, gate.owner)
-    payload = record_subtask_contract(document=document, profile=profile, workspace_root=workspace,
-                                      adapter=adapter, subtask_id=args.subtask,
-                                      evidence_id=args.evidence_id, adapters=adapters)
+    payload = record_subtask_contract(
+        document=document,
+        profile=profile,
+        workspace_root=workspace,
+        adapter=adapter,
+        subtask_id=args.subtask,
+        evidence_id=args.evidence_id,
+        adapters=adapters,
+    )
     print(json.dumps(payload, sort_keys=True))
     return 0
+
+
 def cmd_finalize(args) -> int:
     document, profile, owners, workspace, adapters = _context(args)
     gate = _gate(profile, args.gate)
     adapter = owners.get(gate.owner) or _owner(owners, gate.owner)
-    payload = finalize_gate(document=document, profile=profile, adapters=adapters,
-                            workspace_root=workspace, gate=gate, evidence_id=args.evidence_id,
-                            adapter=adapter, status=args.status, reason_code=args.reason_code)
+    payload = finalize_gate(
+        document=document,
+        profile=profile,
+        adapters=adapters,
+        workspace_root=workspace,
+        gate=gate,
+        evidence_id=args.evidence_id,
+        adapter=adapter,
+        status=args.status,
+        reason_code=args.reason_code,
+    )
     print(json.dumps(payload, sort_keys=True))
     return 0
+
+
 def cmd_review(args) -> int:
     document, gate, adapter, workspace = _gate_adapter(args, args.gate)
-    payload = record_review(document=document, workspace_root=workspace, gate=gate, check_id=args.check,
-                            evidence_id=args.evidence_id, adapter=adapter,
-                            transcript=Path(args.transcript), author_uuid=args.author_uuid,
-                            reviewer_uuid=args.reviewer_uuid, verdict=args.verdict)
+    payload = record_review(
+        document=document,
+        workspace_root=workspace,
+        gate=gate,
+        check_id=args.check,
+        evidence_id=args.evidence_id,
+        adapter=adapter,
+        transcript=Path(args.transcript),
+        author_uuid=args.author_uuid,
+        reviewer_uuid=args.reviewer_uuid,
+        verdict=args.verdict,
+    )
     print(json.dumps(payload, sort_keys=True))
     return 0
-_COMMANDS = {"validate": cmd_validate, "fingerprint": cmd_fingerprint, "record": cmd_record,
-             "contract-subtask": cmd_contract_subtask, "finalize": cmd_finalize, "review": cmd_review}
+
+
+_COMMANDS = {
+    "validate": cmd_validate,
+    "fingerprint": cmd_fingerprint,
+    "record": cmd_record,
+    "contract-subtask": cmd_contract_subtask,
+    "finalize": cmd_finalize,
+    "review": cmd_review,
+}
+
+
 def main(argv: list[str] | None = None) -> int:
     try:
         args = _parser().parse_args(argv)
@@ -173,5 +252,7 @@ def main(argv: list[str] | None = None) -> int:
     except (AcddError, AdapterError, ValueError, yaml.YAMLError, OSError) as error:
         print(f"ACDD ERROR: {error}", file=sys.stderr)
         return 2
+
+
 if __name__ == "__main__":
     raise SystemExit(main())

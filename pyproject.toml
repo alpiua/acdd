@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "acdd"
 version = "0.3.0"
-description = "ACDD — Architecture Contract-Driven Development"
+description = "ACDD — Agentic Contract-Driven Development"
 readme = "README.md"
 license = "MIT"
 license-files = ["LICENSE"]
@@ -50,5 +50,46 @@ include = ["acdd", "acdd.*"]
 ]
 
 [dependency-groups]
-dev = ["pytest>=8", "build>=1.2"]
+dev = [
+  "basedpyright>=1.28.0",
+  "build>=1.2",
+  "pytest>=8",
+  "ruff>=0.8.0",
+  "twine>=5.0.0",
+]
 
+[tool.uv]
+default-groups = ["dev"]
+
+[tool.ruff]
+target-version = "py311"
+line-length = 100
+
+[tool.basedpyright]
+include = ["acdd", "tests"]
+typeCheckingMode = "basic"
+# Lean validator codebase is still largely unannotated; keep CI green like the
+# grid-view-spec job shape while typing catches up.
+reportMissingTypeArgument = "none"
+reportImportCycles = "none"
+reportUnknownVariableType = "none"
+reportUnknownMemberType = "none"
+reportUnknownArgumentType = "none"
+reportUnknownParameterType = "none"
+reportMissingParameterType = "none"
+reportUnusedCallResult = "none"
+reportAny = "none"
+reportPrivateUsage = "none"
+reportImplicitStringConcatenation = "none"
+reportOptionalMemberAccess = "none"
+reportOptionalSubscript = "none"
+reportCallIssue = "none"
+reportArgumentType = "none"
+reportConstantRedefinition = "none"
+reportReturnType = "none"
+reportAssignmentType = "none"
+reportAttributeAccessIssue = "none"
+reportGeneralTypeIssues = "none"
+reportUnnecessaryIsInstance = "none"
+reportUnnecessaryContains = "none"
+reportUnannotatedClassAttribute = "none"

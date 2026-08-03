@@ -1,4 +1,5 @@
 """Tests for fingerprint computation."""
+
 from __future__ import annotations
 
 import sys
@@ -23,9 +24,11 @@ def ws(tmp_path):
 
 
 def test_fingerprint_selects_types(ws):
-    inputs = [{"type": "source", "path": "src/a.py"},
-              {"type": "test", "path": "src/b.py"},
-              {"type": "configuration", "path": "config/app.yaml"}]
+    inputs = [
+        {"type": "source", "path": "src/a.py"},
+        {"type": "test", "path": "src/b.py"},
+        {"type": "configuration", "path": "config/app.yaml"},
+    ]
     fp_src = fingerprint_gate(ws, inputs, types=["source"])
     fp_all = fingerprint_gate(ws, inputs, types=["source", "test", "configuration"])
     assert fp_src.sha256 != fp_all.sha256
@@ -33,8 +36,7 @@ def test_fingerprint_selects_types(ws):
 
 
 def test_fingerprint_filters_by_files(ws):
-    inputs = [{"type": "source", "path": "src/a.py"},
-              {"type": "source", "path": "src/b.py"}]
+    inputs = [{"type": "source", "path": "src/a.py"}, {"type": "source", "path": "src/b.py"}]
     fp_a = fingerprint_gate(ws, inputs, types=["source"], files=["src/a.py"])
     fp_b = fingerprint_gate(ws, inputs, types=["source"], files=["src/b.py"])
     fp_ab = fingerprint_gate(ws, inputs, types=["source"], files=["src/a.py", "src/b.py"])
