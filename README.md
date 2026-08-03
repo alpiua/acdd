@@ -1,3 +1,5 @@
+> **DEPRECATED / ARCHIVED** — Do not use for new work. Successor: [`alpiua/acdd`](https://github.com/alpiua/acdd) (ACDD — design / contract / build / review / handoff). This tree is the last archived G0–G3 plugin line.
+
 # ACDD Workflow
 
 ACDD means **Architecture Contract-Driven Development**.
@@ -61,8 +63,8 @@ and explicit non-goals.
 | `matrix/v1` | Every affected domain has an owner, propagation path, mitigation, authorization, proof, or explicit blocker. | Reads `task + implementation`; the `task` adapter executes and updates the task. |
 | `architecture/v1` | The proposed contract is coherent with live source, callers, dependencies, authority, lifecycle, storage, compatibility paths, and proof obligations. | Reads `task + implementation`; the `task` adapter launches four read-only inspectors and one coordinator. |
 
-Examples: [`task adapter`](examples/planner/.acdd/task-adapter.yaml) and
-[`architecture-review adapter`](examples/reviewers/.acdd/task-adapter.yaml).
+Examples: [`task adapter`](examples/planner/.acdd-legacy/task-adapter.yaml) and
+[`architecture-review adapter`](examples/reviewers/.acdd-legacy/task-adapter.yaml).
 
 New tasks freeze G0 authority under `## G0 architecture baseline`. Existing active
 tasks keep the semantic baseline they were approved with; copying it into a new
@@ -132,7 +134,7 @@ G1 starts only after G0 passes for the current semantic candidate.
 | `runtime/v1` | The real production caller and applicable failure path produce the required terminal behavior. | The `implementation` adapter runs the owner command in the implementation repository. |
 | `parity/v1` | Behavior, faults, authorization, lifecycle, configuration, owner path, storage/backend, generated surfaces, and alternate paths agree wherever applicable. | The `implementation` adapter selects real parity commands and records applicability. |
 
-Example: [`implementation adapter`](examples/codebase/.acdd/implementation-adapter.yaml).
+Example: [`implementation adapter`](examples/codebase/.acdd-legacy/implementation-adapter.yaml).
 
 Evidence must exercise the behavior, execution conditions, and affected
 implementations named by the claim. When a parity dimension does not apply,
@@ -144,7 +146,7 @@ record the bounded inapplicability rationale required by the profile.
 |---|---|---|
 | `security/v1` | Final authorization, identity and tenant isolation, untrusted input, paths and secrets, payload exposure, lifecycle/audit behavior, external effects, and fail-closed denial. | Reads `task + implementation`; the `implementation` adapter runs the repository's security proofs and structural checks. |
 
-Example: [`implementation adapter`](examples/codebase/.acdd/implementation-adapter.yaml).
+Example: [`implementation adapter`](examples/codebase/.acdd-legacy/implementation-adapter.yaml).
 
 G2 reviews the implemented system, not the intended design. Every applicable
 security contour needs positive and negative evidence; an inapplicable contour
@@ -158,9 +160,9 @@ needs an explicit reason.
 | `review/v1` | An independent reviewer checks current source, tests, configuration, runtime evidence, proof mappings, security, compatibility, and residual risk against the approved contract. | The `implementation` adapter owns the terminal review launcher. |
 | `handoff/v1` | All required receipts are current, accepted findings have been propagated, blockers are empty, and changed artifacts are recorded. | The `task` adapter writes the final checkpoint. |
 
-Examples: [`implementation adapter`](examples/codebase/.acdd/implementation-adapter.yaml),
-[`terminal-review adapter`](examples/reviewers/.acdd/implementation-adapter.yaml), and
-[`task handoff adapter`](examples/planner/.acdd/task-adapter.yaml).
+Examples: [`implementation adapter`](examples/codebase/.acdd-legacy/implementation-adapter.yaml),
+[`terminal-review adapter`](examples/reviewers/.acdd-legacy/implementation-adapter.yaml), and
+[`task handoff adapter`](examples/planner/.acdd-legacy/task-adapter.yaml).
 
 Accepted review findings change the evidence set. Apply authorized fixes, compute
 the affected rerun set with
@@ -188,10 +190,10 @@ not implement those tasks.
 | `publish/v1` | Links, metadata, shape, drift, and adapter-owned derived-state refresh. |
 | `handoff/v1` | Current receipts, blockers, changed artifacts, and task-flow candidates. |
 
-Start from [`examples/planner/.acdd/plan-adapter.yaml`](examples/planner/.acdd/plan-adapter.yaml),
+Start from [`examples/planner/.acdd-legacy/plan-adapter.yaml`](examples/planner/.acdd-legacy/plan-adapter.yaml),
 [`examples/simple-plan/`](examples/simple-plan/), or an external projection such
-as [`examples/linear/.acdd/`](examples/linear/.acdd/) and
-[`examples/jira/.acdd/`](examples/jira/.acdd/).
+as [`examples/linear/.acdd-legacy/`](examples/linear/.acdd-legacy/) and
+[`examples/jira/.acdd-legacy/`](examples/jira/.acdd-legacy/).
 
 ## How gates run
 
@@ -228,10 +230,10 @@ cannot remove, reorder, or weaken profile requirements.
 
 | Role | Place it in | Responsibility |
 |---|---|---|
-| `task` | Task/backlog repository: `.acdd/task-adapter.yaml` | Task state, impact axes, G0 execution, receipts, and handoff. |
-| `implementation` | Source/runtime repository: `.acdd/implementation-adapter.yaml` | Source discovery, RED/runtime/parity/security/release commands, and terminal code review. |
-| `plan` | Planning repository: `.acdd/plan-adapter.yaml` | Planning authority, hierarchy validation, architecture review, publication, and planning handoff. |
-| `audit` | Report repository: `.acdd/audit-adapter.yaml` | Optional publication of one selected terminal report; it owns no workflow gate. |
+| `task` | Task/backlog repository: `.acdd-legacy/task-adapter.yaml` | Task state, impact axes, G0 execution, receipts, and handoff. |
+| `implementation` | Source/runtime repository: `.acdd-legacy/implementation-adapter.yaml` | Source discovery, RED/runtime/parity/security/release commands, and terminal code review. |
+| `plan` | Planning repository: `.acdd-legacy/plan-adapter.yaml` | Planning authority, hierarchy validation, architecture review, publication, and planning handoff. |
+| `audit` | Report repository: `.acdd-legacy/audit-adapter.yaml` | Optional publication of one selected terminal report; it owns no workflow gate. |
 
 A task workflow composes `task + implementation` and may add `audit`. A planning
 workflow uses `plan` and may add `audit`. Each route has exactly one executor;
@@ -316,10 +318,10 @@ implementation, and optional audit publication:
 ```text
 workspace/
 ├── plugins/acdd-workflow/
-├── planner/.acdd/task-adapter.yaml
-├── planner/.acdd/plan-adapter.yaml
-├── product/.acdd/implementation-adapter.yaml
-└── audit/.acdd/audit-adapter.yaml
+├── planner/.acdd-legacy/task-adapter.yaml
+├── planner/.acdd-legacy/plan-adapter.yaml
+├── product/.acdd-legacy/implementation-adapter.yaml
+└── audit/.acdd-legacy/audit-adapter.yaml
 ```
 
 Install the validator dependencies and verify the plugin:
@@ -339,8 +341,8 @@ python3 scripts/validate_acdd.py \
   --profile profiles/task/v1.yaml \
   --workspace-root ../.. \
   --document planner/roadmap/phase-05/tasks/example.md \
-  --adapter task=planner/.acdd/task-adapter.yaml \
-  --adapter implementation=product/.acdd/implementation-adapter.yaml
+  --adapter task=planner/.acdd-legacy/task-adapter.yaml \
+  --adapter implementation=product/.acdd-legacy/implementation-adapter.yaml
 ```
 
 Validate a planning composition:
@@ -350,7 +352,7 @@ python3 scripts/validate_acdd.py \
   --profile profiles/plan/v1.yaml \
   --workspace-root ../.. \
   --document planner/plans/active/example.md \
-  --adapter plan=planner/.acdd/plan-adapter.yaml
+  --adapter plan=planner/.acdd-legacy/plan-adapter.yaml
 ```
 
 See [`INSTALL.md`](INSTALL.md) for adapter creation, launcher configuration,
@@ -366,11 +368,11 @@ Put a short route in the workspace or owner `AGENTS.md`:
 
 - Task delivery → `plugins/acdd-workflow/skills/acdd-task/SKILL.md` with
   `plugins/acdd-workflow/profiles/task/v1.yaml`, the task owner's
-  `.acdd/task-adapter.yaml`, and the source owner's
-  `.acdd/implementation-adapter.yaml`.
+  `.acdd-legacy/task-adapter.yaml`, and the source owner's
+  `.acdd-legacy/implementation-adapter.yaml`.
 - Planning → `plugins/acdd-workflow/skills/acdd-plan/SKILL.md` with
   `plugins/acdd-workflow/profiles/plan/v1.yaml` and the planning owner's
-  `.acdd/plan-adapter.yaml`.
+  `.acdd-legacy/plan-adapter.yaml`.
 - Validate the composition before executing a gate. Follow profile order, use
   the routed executor adapter, keep evidence and receipts current, and stop on
   blocked or failed gates.
@@ -380,7 +382,7 @@ Then give the agent a concrete request:
 
 ```text
 Start or continue the bound task at planner/path/to/task.md using acdd/task/v1.
-Load planner/.acdd/task-adapter.yaml and product/.acdd/implementation-adapter.yaml.
+Load planner/.acdd-legacy/task-adapter.yaml and product/.acdd-legacy/implementation-adapter.yaml.
 Validate the composition, inspect the current receipts, and execute the next
 eligible gate only. Record real evidence; do not manufacture or skip receipts.
 ```
@@ -389,7 +391,7 @@ For planning:
 
 ```text
 Create or improve the planning set rooted at planner/plans/active/example.md
-using acdd/plan/v1 and planner/.acdd/plan-adapter.yaml. Validate first, execute
+using acdd/plan/v1 and planner/.acdd-legacy/plan-adapter.yaml. Validate first, execute
 gates in profile order, create inactive task candidates, and stop on blockers.
 ```
 

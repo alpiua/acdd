@@ -39,3 +39,6 @@ Create a new version when a change:
 
 Semantic task changes are not profile migrations. Record them as
 `kind: semantic-change`, provide authorization, and invalidate affected gates.
+When a declared `architectureAmendments` list binds the frozen G0 fingerprint,
+those amendments retain the G0 receipts and invalidate `red/v1` onward; otherwise
+the semantic change invalidates the full gate sequence.

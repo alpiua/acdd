@@ -1,3 +1,5 @@
+> **DEPRECATED / ARCHIVED** — Do not use for new work. Successor: [`alpiua/acdd`](https://github.com/alpiua/acdd) (ACDD — design / contract / build / review / handoff). This tree is the last archived G0–G3 plugin line.
+
 # ACDD Workflow
 
 Host-neutral Architecture Contract-Driven Development plugin.
@@ -16,7 +18,7 @@ Host-neutral Architecture Contract-Driven Development plugin.
 ## Rules
 
 - Keep profiles and contracts host-neutral; put repository paths, commands,
-  tools, impact axes, and external mappings in owner `.acdd/` adapters.
+  tools, impact axes, and external mappings in owner `.acdd-legacy/` adapters.
 - Preserve profile gate order and the supported IDs `acdd/task/v1`, `acdd/task/v1-light`, and
   `acdd/plan/v1` unless explicitly changing contract versions.
 - Complete G0 before implementation; never manufacture receipts or rerun an

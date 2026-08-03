@@ -200,7 +200,7 @@ def test_architecture_fingerprint_hashes_only_declared_allowed_code_roots(
         ),
         encoding="utf-8",
     )
-    task_adapter = tmp_path / "planner" / ".acdd" / "task-adapter.yaml"
+    task_adapter = tmp_path / "planner" / ".acdd-legacy" / "task-adapter.yaml"
     task_adapter.parent.mkdir()
     task_adapter.write_text(
         """role: task
@@ -211,7 +211,7 @@ inputAuthorities:
         encoding="utf-8",
     )
     implementation_adapter = (
-        tmp_path / "contextunity" / ".acdd" / "implementation-adapter.yaml"
+        tmp_path / "contextunity" / ".acdd-legacy" / "implementation-adapter.yaml"
     )
     implementation_adapter.parent.mkdir()
     implementation_adapter.write_text(
@@ -632,7 +632,7 @@ def _architecture_document(
     tmp_path: Path, *, review_overrides: dict[str, str] | None = None
 ) -> tuple[Path, tuple[Path, ...]]:
     document, adapters = _fixture(tmp_path)
-    implementation_dir = tmp_path / ".acdd"
+    implementation_dir = tmp_path / ".acdd-legacy"
     implementation_dir.mkdir()
     implementation = implementation_dir / "implementation-adapter.yaml"
     implementation.write_text(adapters[1].read_text(encoding="utf-8"), encoding="utf-8")
@@ -1004,6 +1004,7 @@ afterIds: [decision.one]
             record=record,
             receipts=receipts,
             gate_order=tuple(receipt.gate for receipt in receipts),
+            amendments=(),
         )
 
 
@@ -1036,6 +1037,7 @@ afterIds: [{ids}]
         record=record,
         receipts=receipts,
         gate_order=tuple(receipt.gate for receipt in receipts),
+        amendments=(),
     )
 
 
@@ -1069,13 +1071,81 @@ removedIds: [proof.removed]
         record=old,
         receipts=receipts,
         gate_order=tuple(receipt.gate for receipt in receipts),
+        amendments=(),
+    )
+
+
+def test_semantic_change_covered_by_g1_preserves_frozen_g0_receipts(
+    tmp_path: Path,
+) -> None:
+    document, _ = _fixture(tmp_path)
+    before = FP.semantic_task_fingerprint(document.read_text(encoding="utf-8"))
+    amendment_id = "g1-redesign.fixture"
+    amendment = f"""
+
+## G1 redesign amendments
+
+```yaml
+apiVersion: acdd/architecture-amendments/v1
+kind: architecture-amendments
+items:
+  - id: {amendment_id}
+    baseG0Fingerprint: {before.sha256}
+    rationale: Bound supplemental authority changes the current contract.
+    decisions: [decision.fixture]
+    coherence: [Preserves the frozen G0 owner boundary.]
+    propagation: [caller -> owner -> storage -> reader]
+    implementationPaths: [source.py]
+    proofIds: [proof.fixture]
+    review:
+      status: pending
+      evidence: pending
+      inputFingerprint: pending
+      recordedAt: pending
+    attempts: []
+```
+"""
+    changed = document.read_text(encoding="utf-8").replace(
+        "contract.proof — decision.one proof.red-one",
+        "contract.proof — decision.one proof.red-one changed",
+        1,
+    ) + amendment
+    current = FP.semantic_task_fingerprint(changed)
+    change = f"""
+
+## ACDD contract changes
+
+```yaml
+apiVersion: acdd/contract-change/v1
+kind: semantic-change
+rationale: Bound G1 redesign changes the current contract.
+authorization: bound user decision
+beforeFingerprint: {before.sha256}
+afterFingerprint: {current.sha256}
+removedIds: []
+architectureAmendments: [{amendment_id}]
+```
+"""
+    text = changed + change
+    receipts = (
+        DOC.Receipt("matrix/v1", "pass", "matrix", before.sha256, "2026-07-23T00:00:00Z"),
+        DOC.Receipt("architecture/v1", "pass", "architecture", before.sha256, "2026-07-23T00:00:00Z"),
+        *(DOC.Receipt(gate, "pending", None, None, None) for gate in ("red/v1", "runtime/v1", "parity/v1", "security/v1", "release/v1", "review/v1", "handoff/v1")),
+    )
+    DOC._validate_contract_changes(
+        text,
+        current=current,
+        record=DOC.SemanticRecord(before.sha256, before.ids, before.red_proof_sha256, ()),
+        receipts=receipts,
+        gate_order=tuple(receipt.gate for receipt in receipts),
+        amendments=FP.parse_architecture_amendments(text),
     )
 
 
 def test_legacy_manifest_references_are_rejected(tmp_path: Path) -> None:
     document, _ = _fixture(tmp_path)
     text = document.read_text(encoding="utf-8").replace(
-        "| `pending` | pending", "| `blocked` | manifest=.acdd/input-set.json", 1
+        "| `pending` | pending", "| `blocked` | manifest=.acdd-legacy/input-set.json", 1
     )
     with pytest.raises(DOC.DocumentError, match="legacy manifest"):
         DOC.parse_receipts(text, plan=False)

@@ -360,7 +360,7 @@ def test_plan_contract_declares_shape_inapplicable_policy() -> None:
 
 def test_executor_procedures_declare_verification_class() -> None:
     core = VALIDATOR.load_core(ROOT / "profiles" / "task" / "v1.yaml")
-    adapter_path = ROOT / "examples" / "planner" / ".acdd" / "task-adapter.yaml"
+    adapter_path = ROOT / "examples" / "planner" / ".acdd-legacy" / "task-adapter.yaml"
     adapter = VALIDATOR.load_adapter(adapter_path, "task", core, allowed_root=ROOT)
     architecture = adapter["gateProcedures"]["architecture/v1"]
     assert architecture["verificationClass"] == "full-wave"
@@ -368,7 +368,7 @@ def test_executor_procedures_declare_verification_class() -> None:
 
 def test_missing_verification_class_fails_closed() -> None:
     core = VALIDATOR.load_core(ROOT / "profiles" / "task" / "v1.yaml")
-    adapter_path = ROOT / "examples" / "planner" / ".acdd" / "task-adapter.yaml"
+    adapter_path = ROOT / "examples" / "planner" / ".acdd-legacy" / "task-adapter.yaml"
     adapter = VALIDATOR.load_adapter(adapter_path, "task", core, allowed_root=ROOT)
     procedures = copy.deepcopy(adapter["gateProcedures"])
     del procedures["architecture/v1"]["verificationClass"]
@@ -380,7 +380,7 @@ def test_missing_verification_class_fails_closed() -> None:
 
 def test_task_architecture_cannot_downgrade_verification_class() -> None:
     core = VALIDATOR.load_core(ROOT / "profiles" / "task" / "v1.yaml")
-    adapter_path = ROOT / "examples" / "planner" / ".acdd" / "task-adapter.yaml"
+    adapter_path = ROOT / "examples" / "planner" / ".acdd-legacy" / "task-adapter.yaml"
     adapter = VALIDATOR.load_adapter(adapter_path, "task", core, allowed_root=ROOT)
     procedures = copy.deepcopy(adapter["gateProcedures"])
     procedures["architecture/v1"]["verificationClass"] = "single-pass"

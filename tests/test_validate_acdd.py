@@ -158,7 +158,7 @@ def test_example_adapters_cover_routed_capabilities() -> None:
     task = MODULE.load_core(ROOT / "profiles" / "task" / "v1.yaml")
     plan = MODULE.load_core(ROOT / "profiles" / "plan" / "v1.yaml")
     task_adapter = MODULE.load_adapter(
-        ROOT / "examples" / "planner" / ".acdd" / "task-adapter.yaml",
+        ROOT / "examples" / "planner" / ".acdd-legacy" / "task-adapter.yaml",
         "task",
         task,
         allowed_root=ROOT,
@@ -174,7 +174,7 @@ def test_example_adapters_cover_routed_capabilities() -> None:
     assert architecture["launchers"]["coordinator"]["target"] == "pi"
     assert architecture["runtime"] not in architecture["toolEnvelope"]["admit"]
     implementation_adapter = MODULE.load_adapter(
-        ROOT / "examples" / "codebase" / ".acdd" / "implementation-adapter.yaml",
+        ROOT / "examples" / "codebase" / ".acdd-legacy" / "implementation-adapter.yaml",
         "implementation",
         task,
         allowed_root=ROOT,
@@ -183,10 +183,10 @@ def test_example_adapters_cover_routed_capabilities() -> None:
     assert review["launcher"]["target"] == "pi_review_agents"
     assert review["launcher"]["target"] in review["toolEnvelope"]["admit"]
     for relative in (
-        "examples/simple-plan/.acdd/plan-adapter.yaml",
-        "examples/planner/.acdd/plan-adapter.yaml",
-        "examples/linear/.acdd/plan-adapter.yaml",
-        "examples/jira/.acdd/plan-adapter.yaml",
+        "examples/simple-plan/.acdd-legacy/plan-adapter.yaml",
+        "examples/planner/.acdd-legacy/plan-adapter.yaml",
+        "examples/linear/.acdd-legacy/plan-adapter.yaml",
+        "examples/jira/.acdd-legacy/plan-adapter.yaml",
     ):
         MODULE.load_adapter(
             ROOT / relative,
@@ -233,7 +233,7 @@ def test_declared_paths_do_not_treat_model_ids_or_arguments_as_files(
 
 def test_task_architecture_launchers_bind_models() -> None:
     core = MODULE.load_core(ROOT / "profiles" / "task" / "v1.yaml")
-    adapter_path = ROOT / "examples" / "planner" / ".acdd" / "task-adapter.yaml"
+    adapter_path = ROOT / "examples" / "planner" / ".acdd-legacy" / "task-adapter.yaml"
     adapter = MODULE.load_adapter(adapter_path, "task", core, allowed_root=ROOT)
     procedures = copy.deepcopy(adapter["gateProcedures"])
     architecture = procedures["architecture/v1"]
@@ -261,7 +261,7 @@ def test_task_architecture_launchers_bind_models() -> None:
 
 def test_task_architecture_requires_split_launchers() -> None:
     core = MODULE.load_core(ROOT / "profiles" / "task" / "v1.yaml")
-    adapter_path = ROOT / "examples" / "planner" / ".acdd" / "task-adapter.yaml"
+    adapter_path = ROOT / "examples" / "planner" / ".acdd-legacy" / "task-adapter.yaml"
     adapter = MODULE.load_adapter(adapter_path, "task", core, allowed_root=ROOT)
     procedures = copy.deepcopy(adapter["gateProcedures"])
     architecture = procedures["architecture/v1"]
@@ -284,7 +284,7 @@ def test_task_architecture_requires_split_launchers() -> None:
 
 def test_architecture_accepts_host_neutral_split_command_launchers() -> None:
     core = MODULE.load_core(ROOT / "profiles" / "task" / "v1.yaml")
-    adapter_path = ROOT / "examples" / "planner" / ".acdd" / "task-adapter.yaml"
+    adapter_path = ROOT / "examples" / "planner" / ".acdd-legacy" / "task-adapter.yaml"
     adapter = MODULE.load_adapter(adapter_path, "task", core, allowed_root=ROOT)
     procedures = copy.deepcopy(adapter["gateProcedures"])
     architecture = procedures["architecture/v1"]
@@ -305,7 +305,7 @@ def test_architecture_accepts_host_neutral_split_command_launchers() -> None:
 def test_reviewer_adapter_examples_bind_owner_roles_and_code_map_impact() -> None:
     task = MODULE.load_core(ROOT / "profiles" / "task" / "v1.yaml")
     plan = MODULE.load_core(ROOT / "profiles" / "plan" / "v1.yaml")
-    reviewer_root = ROOT / "examples" / "reviewers" / ".acdd"
+    reviewer_root = ROOT / "examples" / "reviewers" / ".acdd-legacy"
 
     task_adapter = MODULE.load_adapter(
         reviewer_root / "task-adapter.yaml", "task", task, allowed_root=ROOT
@@ -337,7 +337,7 @@ def test_reviewer_adapter_examples_bind_owner_roles_and_code_map_impact() -> Non
 def test_default_write_policy_blocks_agent_instructions() -> None:
     core = MODULE.load_core(ROOT / "profiles" / "task" / "v1.yaml")
     adapter = MODULE.load_adapter(
-        ROOT / "examples" / "codebase" / ".acdd" / "implementation-adapter.yaml",
+        ROOT / "examples" / "codebase" / ".acdd-legacy" / "implementation-adapter.yaml",
         "implementation",
         core,
         allowed_root=ROOT,
@@ -359,7 +359,7 @@ def test_default_write_policy_blocks_agent_instructions() -> None:
 def test_protected_write_requires_scoped_policy_and_explicit_user_request() -> None:
     core = MODULE.load_core(ROOT / "profiles" / "task" / "v1.yaml")
     adapter = MODULE.load_adapter(
-        ROOT / "examples" / "codebase" / ".acdd" / "implementation-adapter.yaml",
+        ROOT / "examples" / "codebase" / ".acdd-legacy" / "implementation-adapter.yaml",
         "implementation",
         core,
         allowed_root=ROOT,
@@ -717,7 +717,7 @@ def test_self_contained_plan_example_validates_without_provenance_files() -> Non
             "--document",
             str(ROOT / "examples" / "simple-plan" / "PLAN.md"),
             "--adapter",
-            f"plan={ROOT / 'examples' / 'simple-plan' / '.acdd' / 'plan-adapter.yaml'}",
+            f"plan={ROOT / 'examples' / 'simple-plan' / '.acdd-legacy' / 'plan-adapter.yaml'}",
         ],
         text=True,
         capture_output=True,
@@ -760,9 +760,9 @@ def test_v1_light_example_validates_with_light_task_adapter() -> None:
             "--document",
             str(ROOT / "examples" / "task-light" / "TASK.md"),
             "--adapter",
-            f"task={ROOT / 'examples' / 'planner' / '.acdd' / 'task-adapter-light.yaml'}",
+            f"task={ROOT / 'examples' / 'planner' / '.acdd-legacy' / 'task-adapter-light.yaml'}",
             "--adapter",
-            f"implementation={ROOT / 'examples' / 'codebase' / '.acdd' / 'implementation-adapter-light.yaml'}",
+            f"implementation={ROOT / 'examples' / 'codebase' / '.acdd-legacy' / 'implementation-adapter-light.yaml'}",
         ],
         text=True,
         capture_output=True,

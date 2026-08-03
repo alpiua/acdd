@@ -113,7 +113,7 @@ paths:
   - type: source
     path: examples/simple-plan/README.md
   - type: dependency
-    path: examples/simple-plan/.acdd/references/simple-plan.md
+    path: examples/simple-plan/.acdd-legacy/references/simple-plan.md
 ```
 
 ## ACDD gate evidence

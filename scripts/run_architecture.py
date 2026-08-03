@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Fail-closed concurrent architecture/v1 runner."""
 from __future__ import annotations
-import argparse, concurrent.futures, json, re, subprocess, sys
+import argparse, concurrent.futures, json, os, re, subprocess, sys
 from datetime import UTC, datetime
 from pathlib import Path
 from uuid import uuid4
@@ -239,8 +239,10 @@ def launch(binding, prompt, session, cwd, required=(), *, usage_sink=None, usage
     if binding.get("kind")!="command" or binding.get("promptTransport")!="final-argument": raise RunnerError("architecture launchers must be command/final-argument")
     target,args=binding.get("target"),binding.get("arguments")
     if not isinstance(target,str) or not isinstance(args,list) or not all(isinstance(v,str) for v in args): raise RunnerError("invalid architecture launcher")
+    environment=os.environ.copy()
+    environment["ACDD_CODEX_WORKSPACE"]=str(cwd.resolve())
     try:
-        run=subprocess.run([target,*(v.replace("{sessionUuid}",session) for v in args),prompt],cwd=cwd,text=True,capture_output=True,check=False,timeout=LAUNCH_TIMEOUT_SECONDS)
+        run=subprocess.run([target,*(v.replace("{sessionUuid}",session) for v in args),prompt],cwd=cwd,env=environment,text=True,capture_output=True,check=False,timeout=LAUNCH_TIMEOUT_SECONDS)
     except subprocess.TimeoutExpired as exc:
         stdout=_text(exc.stdout); stderr=_text(exc.stderr)
         usage=parse_launcher_usage(stdout+"\n"+stderr)

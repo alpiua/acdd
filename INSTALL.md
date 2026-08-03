@@ -13,12 +13,12 @@ workflow:
 ```text
 workspace/
 ├── plugins/acdd-workflow/
-├── planner/.acdd/
+├── planner/.acdd-legacy/
 │   ├── task-adapter.yaml
 │   └── plan-adapter.yaml
-├── product/.acdd/
+├── product/.acdd-legacy/
 │   └── implementation-adapter.yaml
-└── audit/.acdd/
+└── audit/.acdd-legacy/
     └── audit-adapter.yaml
 ```
 
@@ -41,20 +41,20 @@ checkout and pass the workspace, document, profile, and adapters explicitly.
 | Task delivery (`acdd/task/v1`) | `task` in the task repository and `implementation` in the source/runtime repository; optional `audit` |
 | Planning (`acdd/plan/v1`) | `plan` in the planning repository; optional `audit` |
 
-Place each adapter in its owner's `.acdd/` directory. Do not centralize product
+Place each adapter in its owner's `.acdd-legacy/` directory. Do not centralize product
 commands, paths, or tool assumptions in the plugin's profiles or contracts.
 
 Copy the nearest working example:
 
 | Owner | Starting point |
 |---|---|
-| Filesystem task and planning owner | [`examples/planner/.acdd/`](examples/planner/.acdd/) |
-| Source, tests, runtime, and release owner | [`examples/codebase/.acdd/`](examples/codebase/.acdd/) |
+| Filesystem task and planning owner | [`examples/planner/.acdd-legacy/`](examples/planner/.acdd-legacy/) |
+| Source, tests, runtime, and release owner | [`examples/codebase/.acdd-legacy/`](examples/codebase/.acdd-legacy/) |
 | Independent architecture and terminal review | [`examples/reviewers/`](examples/reviewers/) |
 | Self-contained planning bundle | [`examples/simple-plan/`](examples/simple-plan/) |
-| Linear projection | [`examples/linear/.acdd/`](examples/linear/.acdd/) |
-| Jira projection | [`examples/jira/.acdd/`](examples/jira/.acdd/) |
-| Optional audit publication | [`examples/audit/.acdd/`](examples/audit/.acdd/) |
+| Linear projection | [`examples/linear/.acdd-legacy/`](examples/linear/.acdd-legacy/) |
+| Jira projection | [`examples/jira/.acdd-legacy/`](examples/jira/.acdd-legacy/) |
+| Optional audit publication | [`examples/audit/.acdd-legacy/`](examples/audit/.acdd-legacy/) |
 
 Replace every example path, command, launcher, model, tool, authority, impact
 axis, constraint, and external mapping with a live value owned by that
@@ -188,7 +188,7 @@ Rules:
 - Preserve completed outputs and bounded redacted diagnostics.
 
 Use the complete working bindings in
-[`examples/planner/.acdd/task-adapter.yaml`](examples/planner/.acdd/task-adapter.yaml)
+[`examples/planner/.acdd-legacy/task-adapter.yaml`](examples/planner/.acdd-legacy/task-adapter.yaml)
 and [`examples/reviewers/`](examples/reviewers/).
 
 ### Architecture artifacts and amendments
@@ -290,8 +290,8 @@ Use `externalMappings` to project canonical hierarchy rather than redefine it:
 - filesystem planning: roadmap → phase → milestone → task files.
 
 Plans remain separately bound artifacts. See
-[`examples/linear/.acdd/`](examples/linear/.acdd/) and
-[`examples/jira/.acdd/`](examples/jira/.acdd/).
+[`examples/linear/.acdd-legacy/`](examples/linear/.acdd-legacy/) and
+[`examples/jira/.acdd-legacy/`](examples/jira/.acdd-legacy/).
 
 ## Validate a real workspace
 
@@ -303,8 +303,8 @@ python3 scripts/validate_acdd.py \
   --profile profiles/task/v1.yaml \
   --workspace-root ../.. \
   --document planner/roadmap/phase-05/tasks/example.md \
-  --adapter task=planner/.acdd/task-adapter.yaml \
-  --adapter implementation=product/.acdd/implementation-adapter.yaml
+  --adapter task=planner/.acdd-legacy/task-adapter.yaml \
+  --adapter implementation=product/.acdd-legacy/implementation-adapter.yaml
 ```
 
 Planning:
@@ -314,7 +314,7 @@ python3 scripts/validate_acdd.py \
   --profile profiles/plan/v1.yaml \
   --workspace-root ../.. \
   --document planner/plans/active/example.md \
-  --adapter plan=planner/.acdd/plan-adapter.yaml
+  --adapter plan=planner/.acdd-legacy/plan-adapter.yaml
 ```
 
 Add `--settings <json>` when validation must also prove that every named skill
@@ -340,10 +340,10 @@ Add only a short route at the workspace or owner boundary:
 
 - Task delivery → `plugins/acdd-workflow/skills/acdd-task/SKILL.md` with
   `plugins/acdd-workflow/profiles/task/v1.yaml`, the task owner's
-  `.acdd/task-adapter.yaml`, and the implementation owner's
-  `.acdd/implementation-adapter.yaml`.
+  `.acdd-legacy/task-adapter.yaml`, and the implementation owner's
+  `.acdd-legacy/implementation-adapter.yaml`.
 - Planning → `plugins/acdd-workflow/skills/acdd-plan/SKILL.md` with
-  `plugins/acdd-workflow/profiles/plan/v1.yaml` and `.acdd/plan-adapter.yaml`.
+  `plugins/acdd-workflow/profiles/plan/v1.yaml` and `.acdd-legacy/plan-adapter.yaml`.
 - Validate before executing a gate; follow profile order and stop on blocked,
   failed, or stale evidence.
 ```
@@ -361,13 +361,13 @@ python3 scripts/validate_acdd.py \
   --profile profiles/task/v1.yaml \
   --workspace-root . \
   --document examples/task/TASK.md \
-  --adapter task=examples/planner/.acdd/task-adapter.yaml \
-  --adapter implementation=examples/codebase/.acdd/implementation-adapter.yaml
+  --adapter task=examples/planner/.acdd-legacy/task-adapter.yaml \
+  --adapter implementation=examples/codebase/.acdd-legacy/implementation-adapter.yaml
 python3 scripts/validate_acdd.py \
   --profile profiles/plan/v1.yaml \
   --workspace-root . \
   --document examples/simple-plan/PLAN.md \
-  --adapter plan=examples/simple-plan/.acdd/plan-adapter.yaml
+  --adapter plan=examples/simple-plan/.acdd-legacy/plan-adapter.yaml
 python3 scripts/check_markdown_links.py --root .
 git diff --check
 ```

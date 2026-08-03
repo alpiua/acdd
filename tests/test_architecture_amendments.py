@@ -70,8 +70,8 @@ items:
 
 def _task_v2(
     *,
-    receipt: str = "planner/.acdd/runtime/architecture-receipts/task/g1-redesign.ingestion.yaml",
-    transcript: str = "planner/.acdd/runtime/architecture-transcripts/task/g1-redesign.ingestion.jsonl",
+    receipt: str = "planner/.acdd-legacy/runtime/architecture-receipts/task/g1-redesign.ingestion.yaml",
+    transcript: str = "planner/.acdd-legacy/runtime/architecture-transcripts/task/g1-redesign.ingestion.jsonl",
 ) -> str:
     return (
         _task()
@@ -117,8 +117,8 @@ def test_amendment_review_and_attempts_are_not_authority() -> None:
 def test_v2_receipt_pointer_is_not_amendment_authority() -> None:
     before = _task_v2()
     after = _task_v2(
-        receipt="planner/.acdd/runtime/architecture-receipts/task/other.yaml",
-        transcript="planner/.acdd/runtime/architecture-transcripts/task/other.jsonl",
+        receipt="planner/.acdd-legacy/runtime/architecture-receipts/task/other.yaml",
+        transcript="planner/.acdd-legacy/runtime/architecture-transcripts/task/other.jsonl",
     )
     first = FP.parse_architecture_amendments(before)[0]
     assert first.receipt_path.endswith("g1-redesign.ingestion.yaml")
@@ -147,6 +147,25 @@ def test_launcher_delegates_raw_capture_to_adapter_sink(tmp_path: Path) -> None:
     assert result == {"ok": True}
     assert "authorization=super-secret" in str(transcript)
     assert transcript[0]["usage"]["available"] is False
+
+
+def test_launcher_binds_codex_workspace_to_command_cwd(tmp_path: Path) -> None:
+    result = RUNNER.launch(
+        {
+            "kind": "command",
+            "target": sys.executable,
+            "arguments": [
+                "-c",
+                "import json, os; print(json.dumps({'workspace': os.environ['ACDD_CODEX_WORKSPACE']}))",
+            ],
+            "promptTransport": "final-argument",
+        },
+        "prompt",
+        "session",
+        tmp_path,
+        ("workspace",),
+    )
+    assert result == {"workspace": str(tmp_path.resolve())}
 
 
 def test_pending_amendment_blocks_terminal_runtime_receipt() -> None:

@@ -6,13 +6,13 @@ values.
 
 | Example | Use it for | Includes |
 |---|---|---|
-| [`planner/.acdd/`](planner/.acdd/) | Filesystem roadmap delivery | Task and plan adapters, impact variants, task lifecycle rules |
-| [`codebase/.acdd/`](codebase/.acdd/) | Code/test/configuration owner | Full and light implementation adapters, release invariants |
+| [`planner/.acdd-legacy/`](planner/.acdd-legacy/) | Filesystem roadmap delivery | Task and plan adapters, impact variants, task lifecycle rules |
+| [`codebase/.acdd-legacy/`](codebase/.acdd-legacy/) | Code/test/configuration owner | Full and light implementation adapters, release invariants |
 | [`reviewers/`](reviewers/) | Independent architecture and closure review | Task, implementation, and plan gate ownership with real launchers |
 | [`simple-plan/`](simple-plan/) | Self-contained milestone planning | Runnable plan, adapter, contract, and reference bundle |
-| [`linear/.acdd/`](linear/.acdd/) | Linear projection | Initiative → Project → Project Milestone → Issue mapping |
-| [`jira/.acdd/`](jira/.acdd/) | Jira projection | Initiative → Epic → Version/Release → Story or Task mapping |
-| [`audit/.acdd/`](audit/.acdd/) | Terminal report publication | Audit adapter for selected code or plan review reports |
+| [`linear/.acdd-legacy/`](linear/.acdd-legacy/) | Linear projection | Initiative → Project → Project Milestone → Issue mapping |
+| [`jira/.acdd-legacy/`](jira/.acdd-legacy/) | Jira projection | Initiative → Epic → Version/Release → Story or Task mapping |
+| [`audit/.acdd-legacy/`](audit/.acdd-legacy/) | Terminal report publication | Audit adapter for selected code or plan review reports |
 | [`task/TASK.md`](task/TASK.md) | Full bound task document | Typed inputs, decisions, evidence, and pending receipts |
 | [`task/workflow-learning.yaml`](task/workflow-learning.yaml) | Post-review reflection record | Missed-invariant analysis and a prospective canonical guidance candidate |
 | [`task-light/TASK.md`](task-light/TASK.md) | Reduced-scope task document | Light typed inputs and evidence shape |

@@ -305,7 +305,7 @@ def test_runner_surfaces_adapter_transport_errors(output: str, expected: str) ->
 
 
 def test_runner_resolves_declared_launcher_paths_relative_to_adapter(tmp_path: Path) -> None:
-    adapter = tmp_path / ".acdd" / "task-adapter.yaml"
+    adapter = tmp_path / ".acdd-legacy" / "task-adapter.yaml"
     script = adapter.parent / "scripts" / "bridge.py"
     script.parent.mkdir(parents=True)
     script.write_text("pass\n", encoding="utf-8")
@@ -523,13 +523,13 @@ def test_runner_retries_only_transport_or_schema_failure(
 
 
 def test_runner_binds_launcher_paths_and_command_cwd(tmp_path: Path) -> None:
-    task_adapter = tmp_path / "planner/.acdd/task-adapter.yaml"
-    implementation_adapter = tmp_path / "contextunity/.acdd/implementation-adapter.yaml"
+    task_adapter = tmp_path / "planner/.acdd-legacy/task-adapter.yaml"
+    implementation_adapter = tmp_path / "contextunity/.acdd-legacy/implementation-adapter.yaml"
     task_adapter.parent.mkdir(parents=True)
     implementation_adapter.parent.mkdir(parents=True)
     (implementation_adapter.parent.parent / "services").mkdir()
-    (tmp_path / "planner/.acdd/scripts").mkdir()
-    launcher_script = tmp_path / "planner/.acdd/scripts/bridge.py"
+    (tmp_path / "planner/.acdd-legacy/scripts").mkdir()
+    launcher_script = tmp_path / "planner/.acdd-legacy/scripts/bridge.py"
     launcher_script.write_text("# bridge\n", encoding="utf-8")
 
     assert RUNNER.resolve_command_cwd(

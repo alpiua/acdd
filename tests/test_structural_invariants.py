@@ -17,7 +17,7 @@ from structural_invariants import (  # noqa: E402
 
 
 def test_example_release_invariants_load() -> None:
-    contract_path = ROOT / "examples" / "codebase" / ".acdd" / "invariants" / "release.yaml"
+    contract_path = ROOT / "examples" / "codebase" / ".acdd-legacy" / "invariants" / "release.yaml"
     rules = load_contract(
         contract_path,
         schema_path=ROOT / "contracts" / "structural-invariants" / "v1.yaml",
@@ -31,7 +31,7 @@ def test_forbidden_rule_reports_violation(tmp_path: Path) -> None:
     docs.mkdir()
     (docs / "bad.py").write_text("subprocess.run(['echo'])", encoding="utf-8")
     rules = load_contract(
-        ROOT / "examples" / "codebase" / ".acdd" / "invariants" / "release.yaml",
+        ROOT / "examples" / "codebase" / ".acdd-legacy" / "invariants" / "release.yaml",
         schema_path=ROOT / "contracts" / "structural-invariants" / "v1.yaml",
     )
     violations = check_rules(rules, workspace_root=tmp_path)

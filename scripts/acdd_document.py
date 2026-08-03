@@ -1138,6 +1138,7 @@ def _validate_contract_changes(
     record: SemanticRecord,
     receipts: tuple[Receipt, ...],
     gate_order: tuple[str, ...],
+    amendments: tuple[ArchitectureAmendment, ...],
 ) -> None:
     sections = markdown_sections(text)
     if (
@@ -1212,7 +1213,7 @@ def _validate_contract_changes(
             _require_keys(
                 item,
                 required=required,
-                optional=frozenset(),
+                optional=frozenset({"architectureAmendments"}),
                 label=f"contract change[{index}]",
             )
             _string(item.get("rationale"), f"contract change[{index}].rationale")
@@ -1234,7 +1235,31 @@ def _validate_contract_changes(
                     f"after={after} removed={sorted(removed)} "
                     f"actualRemoved={sorted(actual_removed)}"
                 )
-            reset_from = gate_order.index("matrix/v1")
+            amendment_ids = tuple(
+                _string_list(
+                    item.get("architectureAmendments"),
+                    f"contract change[{index}].architectureAmendments",
+                    allow_empty=False,
+                )
+            ) if "architectureAmendments" in item else ()
+            if len(set(amendment_ids)) != len(amendment_ids):
+                raise DocumentError(
+                    f"contract change[{index}].architectureAmendments must not repeat an amendment"
+                )
+            amendments_by_id = {amendment.id: amendment for amendment in amendments}
+            unknown_amendments = sorted(set(amendment_ids) - set(amendments_by_id))
+            if unknown_amendments:
+                raise DocumentError(
+                    f"contract change[{index}].architectureAmendments reference unknown amendments: {unknown_amendments}"
+                )
+            if amendment_ids and any(
+                amendments_by_id[amendment_id].base_g0_fingerprint != record.sha256
+                for amendment_id in amendment_ids
+            ):
+                raise DocumentError(
+                    f"contract change[{index}].architectureAmendments must bind the frozen G0 fingerprint"
+                )
+            reset_from = gate_order.index("red/v1" if amendment_ids else "matrix/v1")
             receipt_map = {receipt.gate: receipt for receipt in receipts}
             for gate in gate_order[reset_from:]:
                 if receipt_map[gate].status not in NONTERMINAL_STATUSES:
@@ -1693,6 +1718,7 @@ def validate_document(
                 record=semantic_record,
                 receipts=receipts,
                 gate_order=gate_order,
+                amendments=amendments,
             )
         if any(
             evidence_id not in evidence
