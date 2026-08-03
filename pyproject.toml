@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "acdd"
-version = "0.3.0"
+version = "0.3.0.post1"
 description = "ACDD — Agentic Contract-Driven Development"
 readme = "README.md"
 license = "MIT"
@@ -13,7 +13,15 @@ requires-python = ">=3.11"
 authors = [
   { name = "Oleksii Pylypchuk", email = "oleksii.pylypchuk@tuta.com" },
 ]
-keywords = ["acdd", "architecture", "contract", "evidence", "validator"]
+keywords = [
+  "acdd",
+  "agentic",
+  "agents",
+  "agentic-workflow",
+  "contract-driven-development",
+  "evidence",
+  "validator",
+]
 classifiers = [
   "Development Status :: 4 - Beta",
   "Environment :: Console",
@@ -93,3 +101,6 @@ reportGeneralTypeIssues = "none"
 reportUnnecessaryIsInstance = "none"
 reportUnnecessaryContains = "none"
 reportUnannotatedClassAttribute = "none"
+
+
+
