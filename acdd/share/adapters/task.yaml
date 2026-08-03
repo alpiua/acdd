@@ -10,8 +10,19 @@ gates:
   contract/v1:
     checks:
       decomposition: {cwd: ., argv: [python3, scripts/gate_check.py, "{document}", profiles/task/v1.yaml]}
-      matrix: {cwd: ., argv: [python3, scripts/gate_check.py, "{document}", profiles/task/v1.yaml]}
-      executable-proof: {cwd: ., argv: [python3, scripts/declared_proof.py, "{document}"]}
+      # Matrix content is part of executable-proof (validated before RED).
+      executable-proof:
+        cwd: .
+        argv:
+          - python3
+          - scripts/markdown_gate_check.py
+          - "{document}"
+          - --require-section
+          - Task execution contract (`contract/v1` output)
+          - --
+          - python3
+          - scripts/declared_proof.py
+          - "{document}"
   handoff/v1:
     checks:
       repository-handoff: {cwd: ., argv: [python3, scripts/handoff_check.py, "{document}", profiles/task/v1.yaml]}

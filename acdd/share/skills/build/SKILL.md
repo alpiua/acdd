@@ -24,6 +24,14 @@ part untouched. Build expresses each subtask's scope in a focused functional
 test at the canonical behavior boundary; a test for one subtask cannot prove
 another subtask's acceptance.
 
+**Subagents (preferred):** After `contract/v1` finalize, follow the
+`contract-verify` Delivery command. Launch **one separate subagent per
+subtask** in each parallel wave (one subagent ↔ one subtask). Do not fold
+independent wave-mates into a single agent session. If the host cannot spawn
+subagents, isolate the same way manually: one subtask's Red→Green at a time
+within a wave, never mixing scopes. Respect `dependsOn` / `supersedes` before
+admitting a subtask to the next wave.
+
 **Red** is that test failing before its production change because the intended
 behavior is absent or wrong. An import failure, test setup error, configuration
 failure, or mock interaction alone is not Red evidence. **Green** is the same

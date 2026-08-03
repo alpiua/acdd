@@ -13,9 +13,10 @@ gates:
     owner: task
     checks:
       - {id: decomposition, evidenceKind: basis, commandOutcome: success}
-      - {id: matrix, evidenceKind: basis, commandOutcome: success}
       - {id: executable-proof, evidenceKind: command, commandOutcome: expected-failure}
+      - {id: contract-verify, evidenceKind: review, commandOutcome: success, owner: contract-verify}
     invalidatesOn: [structure]
+    reviewDimensions: [completeness, chain-coverage, proof-strength, parallel-safety]
     terminals: [pass]
   - id: build/v1
     owner: implementation

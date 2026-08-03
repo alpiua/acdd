@@ -8,9 +8,18 @@ import uuid
 from pathlib import Path
 
 from . import _doc
-from .adapter import Adapter
+from .adapter import Adapter, index_adapters
 from .fingerprint import fingerprint_for_gate, subtask_contract_part
-from .model import INAPPLICABLE, PASS, AcddError, Check, Document, Gate, Profile
+from .model import (
+    INAPPLICABLE,
+    PASS,
+    AcddError,
+    Check,
+    Document,
+    Gate,
+    Profile,
+    check_owner,
+)
 from .process_report import build_process_report, write_process_report
 from .validate import validate
 
@@ -99,17 +108,21 @@ def record_check(
     evidence_id: str,
     adapter: Adapter,
     classified_refs: list[dict] | None = None,
+    adapters: list[Adapter] | dict[str, Adapter] | None = None,
 ) -> tuple[dict | None, bool]:
     _require_fresh_id(document, evidence_id)
-    if adapter.role != gate.owner:
-        raise AcddError(f"adapter role {adapter.role!r} does not own {gate.id}")
     check = _find_check(gate, check_id)
+    owner = check_owner(gate, check)
+    if adapter.role != owner:
+        raise AcddError(f"adapter role {adapter.role!r} does not own {gate.id}.{check_id}")
     binding = adapter.gates.get(gate.id)
     if binding is None or check_id not in binding.checks:
         raise AcddError(f"adapter lacks binding for {gate.id}.{check_id}")
     if check.evidence_kind == "review":
         raise AcddError("review evidence must be registered with acdd review")
-    fingerprint = fingerprint_for_gate(document, gate, workspace_root, adapter)
+    fingerprint = fingerprint_for_gate(
+        document, gate, workspace_root, adapters if adapters is not None else adapter
+    )
     _reject_duplicate_check(document, gate, check_id, fingerprint)
     basis_scope: list[str] = []
     if check.evidence_kind == "basis":
@@ -176,13 +189,18 @@ def record_review(
     author_uuid: str,
     reviewer_uuid: str,
     verdict: str,
+    adapters: list[Adapter] | dict[str, Adapter] | None = None,
 ) -> dict:
-    if adapter.role != gate.owner or _find_check(gate, check_id).evidence_kind != "review":
+    check = _find_check(gate, check_id)
+    owner = check_owner(gate, check)
+    if adapter.role != owner or check.evidence_kind != "review":
         raise AcddError("review command requires an owner-bound review check")
     if gate.id not in adapter.gates or check_id not in adapter.gates[gate.id].checks:
         raise AcddError("review adapter lacks the required check binding")
     _require_fresh_id(document, evidence_id)
-    fingerprint = fingerprint_for_gate(document, gate, workspace_root, adapter)
+    fingerprint = fingerprint_for_gate(
+        document, gate, workspace_root, adapters if adapters is not None else adapter
+    )
     _reject_duplicate_check(document, gate, check_id, fingerprint)
     transcript_path = _doc.confined(workspace_root, str(transcript), "review transcript")
     if not transcript_path.is_file():
@@ -361,6 +379,27 @@ def _require_finalizable(
         raise AcddError(f"cannot finalize {gate.id}: gate is already terminal")
 
 
+def _ensure_gate_check_bindings(gate: Gate, adapters_by_role: dict[str, Adapter]) -> None:
+    for check in gate.checks:
+        role = check_owner(gate, check)
+        adapter = adapters_by_role.get(role)
+        if (
+            adapter is None
+            or gate.id not in adapter.gates
+            or check.id not in adapter.gates[gate.id].checks
+        ):
+            raise AcddError(f"missing adapter binding for {gate.id}.{check.id} (role {role!r})")
+        for other in adapters_by_role.values():
+            if (
+                other.role != role
+                and gate.id in other.gates
+                and check.id in other.gates[gate.id].checks
+            ):
+                raise AcddError(
+                    f"check {gate.id}.{check.id} is bound by non-owner role {other.role!r}"
+                )
+
+
 def finalize_gate(
     *,
     document: Document,
@@ -376,14 +415,12 @@ def finalize_gate(
     _require_finalizable(document, profile, adapters, workspace_root, gate)
     if adapter.role != gate.owner:
         raise AcddError(f"adapter role {adapter.role!r} does not own {gate.id}")
-    if gate.id not in adapter.gates or set(adapter.gates[gate.id].checks) != {
-        check.id for check in gate.checks
-    }:
-        raise AcddError(f"adapter bindings do not exactly cover {gate.id}")
+    adapters_by_role = index_adapters(adapters)
+    _ensure_gate_check_bindings(gate, adapters_by_role)
     if status not in gate.terminals:
         raise AcddError(f"status {status!r} is not terminal for {gate.id}")
     _require_fresh_id(document, evidence_id)
-    fingerprint = fingerprint_for_gate(document, gate, workspace_root, adapter)
+    fingerprint = fingerprint_for_gate(document, gate, workspace_root, adapters_by_role)
     members = [
         item
         for item in document.evidence

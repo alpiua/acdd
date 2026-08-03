@@ -1,0 +1,27 @@
+apiVersion: acdd/adapter/v1
+id: contract-verifier
+role: contract-verify
+artifactDir: artifacts
+gates:
+  contract/v1:
+    checks:
+      # Host launch template; register the finished transcript with `acdd review`.
+      # Placeholders: {document}, {evidenceId}, {reviewerSessionUuid}, {prompt}.
+      contract-verify:
+        argv:
+          - node
+          - plugins/pi-review-agents/bin/pi-review.mjs
+          - --print
+          - --session-id
+          - "{reviewerSessionUuid}"
+          - "{prompt}"
+  decompose/v1:
+    checks:
+      contract-verify:
+        argv:
+          - node
+          - plugins/pi-review-agents/bin/pi-review.mjs
+          - --print
+          - --session-id
+          - "{reviewerSessionUuid}"
+          - "{prompt}"

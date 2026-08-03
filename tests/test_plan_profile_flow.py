@@ -61,6 +61,18 @@ gates:
 """,
         encoding="utf-8",
     )
+    (adapters / "contract-verify.yaml").write_text(
+        """\
+apiVersion: acdd/adapter/v1
+id: contract-verify
+role: contract-verify
+gates:
+  decompose/v1:
+    checks:
+      contract-verify: {argv: [/bin/true]}
+""",
+        encoding="utf-8",
+    )
     (adapters / "review.yaml").write_text(
         """\
 apiVersion: acdd/adapter/v1
@@ -94,10 +106,55 @@ gates:
         run("record", "--gate", gate, "--check", check, "--id", gate[:3] + "." + check, *flags)
         if check == "plan-shape":
             run("finalize", "--gate", gate, "--id", "design.bundle")
-        if check == "matrix":
-            run("finalize", "--gate", gate, "--id", "decompose.bundle")
+    verify_transcript = adapters / "artifacts" / "contract-verify.jsonl"
+    verify_transcript.parent.mkdir(exist_ok=True)
+    verify_transcript.write_text(
+        "\n".join(
+            json.dumps(row)
+            for row in (
+                {
+                    "type": "review_raw",
+                    "reviewerSessionUuid": "00000000-0000-4000-8000-000000000012",
+                    "raw": "permission granted",
+                },
+                {
+                    "type": "review_terminal",
+                    "evidenceId": "decompose.verify",
+                    "gate": "decompose/v1",
+                    "check": "contract-verify",
+                    "scope": ["planning.md"],
+                    "performedChecks": [
+                        "completeness",
+                        "chain-coverage",
+                        "parallel-safety",
+                    ],
+                    "verdict": "pass",
+                    "authorSessionUuid": "00000000-0000-4000-8000-000000000011",
+                    "reviewerSessionUuid": "00000000-0000-4000-8000-000000000012",
+                    "reviewedSessionUuids": ["00000000-0000-4000-8000-000000000012"],
+                },
+            )
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    run(
+        "review",
+        "--gate",
+        "decompose/v1",
+        "--check",
+        "contract-verify",
+        "--id",
+        "decompose.verify",
+        "--transcript",
+        ".acdd/artifacts/contract-verify.jsonl",
+        "--author-uuid",
+        "00000000-0000-4000-8000-000000000011",
+        "--reviewer-uuid",
+        "00000000-0000-4000-8000-000000000012",
+    )
+    run("finalize", "--gate", "decompose/v1", "--id", "decompose.bundle")
     transcript = adapters / "artifacts" / "review.jsonl"
-    transcript.parent.mkdir(exist_ok=True)
     transcript.write_text(
         "\n".join(
             json.dumps(row)

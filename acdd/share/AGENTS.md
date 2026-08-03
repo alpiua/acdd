@@ -6,7 +6,7 @@
 | Decompose a planning set | [decompose gate skill](skills/decompose/SKILL.md) |
 | Freeze executable task contract | [contract gate skill](skills/contract/SKILL.md) |
 | Run integrated verification | [build gate skill](skills/build/SKILL.md) |
-| Perform independent code review | [review gate skill](skills/review/SKILL.md) |
+| Perform independent Code review | [review gate skill](skills/review/SKILL.md) |
 | Close repository handoff | [handoff gate skill](skills/handoff/SKILL.md) |
 | Diagnose a defect or accepted finding | [Diagnose](skills/diagnose/SKILL.md), then return to its gate |
 

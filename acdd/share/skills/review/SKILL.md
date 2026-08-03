@@ -1,9 +1,9 @@
 ---
-name: acdd-v2-review
-description: Run the independent review/v1 ACDD gate.
+name: acdd-review
+description: Run the independent Code review gate (review/v1).
 ---
 
-# review/v1
+# review/v1 — Code review
 
 ## Load
 
@@ -11,6 +11,8 @@ Read the profile, review adapter, and the settled review input. For
 `acdd/task/v1`, that is the Build tree and Contract. For `acdd/plan/v1`, it is
 the planning set after Decompose. Load only this check section, then append the
 bound `promptAppend` fragment.
+
+This gate is **Code review**, not `contract-verify`.
 
 ## independent-review
 

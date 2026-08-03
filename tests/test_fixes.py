@@ -196,11 +196,20 @@ def test_directory_symlink_is_rejected(tmp_path: Path):
 
 
 def test_validator_rejects_unhashable_bundle_member(tmp_path: Path):
+    from acdd.adapter import Adapter, CheckBinding, GateBinding
+
     gate = Gate("build/v1", "implementation", (Check("c", "command", "success"),), (), ("pass",))
     document = Document(
         title="T", inputs=[], evidence=[], receipts=[], subtasks=[], path=tmp_path / "t.md"
     )
-    fingerprint = fingerprint_for_gate(document, gate, tmp_path, None)
+    adapter = Adapter(
+        "implementation",
+        "implementation",
+        "artifacts",
+        tmp_path,
+        {"build/v1": GateBinding(checks={"c": CheckBinding(argv=("/bin/true",))})},
+    )
+    fingerprint = fingerprint_for_gate(document, gate, tmp_path, adapter)
     document.evidence = [
         {
             "kind": "bundle",
@@ -221,7 +230,9 @@ def test_validator_rejects_unhashable_bundle_member(tmp_path: Path):
         }
     ]
 
-    errors = validate(document, Profile("t", [gate]), workspace_root=tmp_path)
+    errors = validate(
+        document, Profile("t", [gate]), adapters=[adapter], workspace_root=tmp_path
+    )
     assert any(error.invariant == 2 and "invalid bundle members" in str(error) for error in errors)
 
 
@@ -869,7 +880,7 @@ gates:
     )
 
 
-def test_discovery_rejects_adapter_with_unknown_gate(core):
+def test_discovery_rejects_unknown_check_on_active_gate(core):
     doc, profile, _adapter = core
     (doc.parent / "side" / ".acdd").mkdir(parents=True)
     (doc.parent / "side" / ".acdd" / "x.yaml").write_text(
@@ -894,7 +905,9 @@ gates:
     finally:
         sys.stderr = original
     assert rc == 1
-    assert "invariant 10" in buf.getvalue()
+    err = buf.getvalue()
+    assert "invariant 5" in err
+    assert "unknown check" in err
 
 
 def test_discovery_ignores_adapters_for_inactive_profile_roles(core):

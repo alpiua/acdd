@@ -10,7 +10,7 @@ import yaml
 from ._doc import resolve_under
 from .adapter import Adapter, AdapterError, index_adapters, load_adapter
 from .discover import discover_adapter_paths
-from .model import AcddError, load_document, load_profile
+from .model import AcddError, check_owner, load_document, load_profile
 from .paths import resolve_profile
 from .record import finalize_gate, record_check, record_review, record_subtask_contract
 from .validate import validate
@@ -137,6 +137,19 @@ def _gate_adapter(args, gate_id):
     return document, gate, adapters.get(gate.owner) or _owner(adapters, gate.owner), workspace
 
 
+def _check(gate, check_id: str):
+    for check in gate.checks:
+        if check.id == check_id:
+            return check
+    raise AcddError(f"unknown check {check_id!r} for {gate.id}")
+
+
+def _check_adapter(adapters, gate, check_id: str):
+    check = _check(gate, check_id)
+    role = check_owner(gate, check)
+    return adapters.get(role) or _owner(adapters, role)
+
+
 def cmd_validate(args) -> int:
     document, profile, _, workspace, adapters = _context(args)
     errors = validate(document, profile, adapters=adapters, workspace_root=workspace)
@@ -153,14 +166,14 @@ def cmd_fingerprint(args) -> int:
 
     document, profile, adapters, workspace, _ = _context(args)
     gate = _gate(profile, args.gate)
-    print(fingerprint_for_gate(document, gate, workspace, adapters.get(gate.owner)))
+    print(fingerprint_for_gate(document, gate, workspace, adapters))
     return 0
 
 
 def cmd_record(args) -> int:
-    document, profile, adapters, workspace, _ = _context(args)
+    document, profile, adapters, workspace, adapter_list = _context(args)
     gate = _gate(profile, args.gate)
-    adapter = adapters.get(gate.owner) or _owner(adapters, gate.owner)
+    adapter = _check_adapter(adapters, gate, args.check)
     classified_refs = [
         {"path": p, "role": r}
         for item in args.classified_ref
@@ -175,6 +188,7 @@ def cmd_record(args) -> int:
         evidence_id=args.evidence_id,
         adapter=adapter,
         classified_refs=classified_refs,
+        adapters=adapters,
     )
     if payload:
         print(json.dumps(payload, sort_keys=True))
@@ -218,7 +232,9 @@ def cmd_finalize(args) -> int:
 
 
 def cmd_review(args) -> int:
-    document, gate, adapter, workspace = _gate_adapter(args, args.gate)
+    document, profile, adapters, workspace, _ = _context(args)
+    gate = _gate(profile, args.gate)
+    adapter = _check_adapter(adapters, gate, args.check)
     payload = record_review(
         document=document,
         workspace_root=workspace,
@@ -230,6 +246,7 @@ def cmd_review(args) -> int:
         author_uuid=args.author_uuid,
         reviewer_uuid=args.reviewer_uuid,
         verdict=args.verdict,
+        adapters=adapters,
     )
     print(json.dumps(payload, sort_keys=True))
     return 0

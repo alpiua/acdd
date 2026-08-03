@@ -1,5 +1,5 @@
 ---
-name: acdd-v2-contract
+name: acdd-contract
 description: Prepare the contract/v1 ACDD gate.
 ---
 
@@ -7,7 +7,7 @@ description: Prepare the contract/v1 ACDD gate.
 
 ## Load
 
-Read the frozen Plan, Inputs, profile, and task adapter. Load only the current
+Read the frozen Plan, Inputs, profile, and adapters. Load only the current
 check section. Then append the bound `promptAppend` fragment, if present.
 
 ## decomposition
@@ -15,21 +15,28 @@ check section. Then append the bound `promptAppend` fragment, if present.
 Prove every required change belongs to one bounded subtask and each dependency
 is explicit. Do not assign overlapping work without ordering.
 
-## matrix
-
-Classify producers, consumers, owners, reads, writes, backends, and authorities
-in the affected scope. Record basis references covering the declared scope.
-
 ## executable-proof
 
-For every reachable defect, record its reachable scenario, canonical owner,
-post-fix invariant, forbidden effects, affected dimensions, and a focused
-regression that fails on the pre-change tree. Its bound command must have the
-profile’s expected outcome.
+Continue from decomposition per subtask: include matrix content (producers,
+consumers, owners, reads, writes, backends, authorities) and the focused RED
+proof. Record reachable scenario, canonical owner, post-fix invariant,
+forbidden effects, affected dimensions, and a regression that fails on the
+pre-change tree. The bound command must have the profile’s expected-failure
+outcome. Tests must cover the frozen contract, not trivia.
+
+## contract-verify
+
+Run through the `contract-verify` adapter (check owner). Resolve its
+`promptAppend`. Substance-check decomposition, matrix+RED, and parallel-safety.
+Use the required nonconformance form. Do **not** grant permission while any
+`requiredFix` is open. Register the verify transcript with `acdd review` only
+after permission with no open corrections. On pass, the verifier's **Delivery
+command** names parallel waves; after finalize, launch **one subagent per
+subtask** in each ready wave (see Build skill).
 
 ## Evidence
 
-Record both basis checks and the proof command, then finalize the owner receipt.
+Record decomposition, executable-proof, and contract-verify, then finalize.
 Finalization creates one append-only source-contract bundle with a separately
 hashed part and matching binding for every current subtask. Do not edit those
 subtasks during Build.

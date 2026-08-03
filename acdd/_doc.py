@@ -126,6 +126,41 @@ def prior_nonterminal(receipts: list[dict], gate_id: str) -> str | None:
     return None
 
 
+_HEADING = re.compile(r"^(#{1,2})[ \t]+(.+?)\s*$")
+
+
+def extract_sections(path: Path, names: tuple[str, ...]) -> dict[str, str]:
+    """Extract raw Markdown bodies for exact # / ## headings (not ###).
+
+    Extraction stops at the next # or ## heading. Heading titles are matched
+    after strip(). Missing names fail closed.
+    """
+    if not names:
+        return {}
+    wanted = {name.strip() for name in names}
+    text = path.read_text(encoding="utf-8")
+    bodies: dict[str, list[str]] = {}
+    present: set[str] = set()
+    current: str | None = None
+    for line in text.splitlines(keepends=True):
+        match = _HEADING.match(line.rstrip("\n"))
+        if match:
+            title = match.group(2).strip()
+            if title in wanted:
+                present.add(title)
+                bodies.setdefault(title, [])
+                current = title
+            else:
+                current = None
+            continue
+        if current is not None:
+            bodies[current].append(line)
+    missing = [name for name in names if name.strip() not in present]
+    if missing:
+        raise ValueError(f"contractSections missing headings: {missing!r}")
+    return {name: "".join(bodies.get(name.strip(), [])) for name in names}
+
+
 def append_evidence(doc_path: Path, payload: dict) -> None:
     text = doc_path.read_text(encoding="utf-8")
     block = (

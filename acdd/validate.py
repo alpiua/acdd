@@ -22,6 +22,7 @@ from .model import (
     AcddError,
     Document,
     Profile,
+    check_owner,
 )
 
 EVIDENCE_KINDS = {"command", "basis", "review", "bundle"}
@@ -217,16 +218,31 @@ def validate(
     except ValueError as exc:
         return [AcddError(str(exc), invariant=10)]
     gates = {gate.id: gate for gate in profile.gates}
-    active_roles = {gate.owner for gate in profile.gates}
+    active_roles = {gate.owner for gate in profile.gates} | {
+        check_owner(gate, check) for gate in profile.gates for check in gate.checks
+    }
     for adapter in adapters or []:
         if adapter.role not in active_roles:
             continue
-        unknown = set(adapter.gates) - set(gates)
-        if unknown:
-            err(
-                10,
-                f"invariant 10 (discovery): adapter {adapter.id!r} binds unknown gates {sorted(unknown)}",
-            )
+        for gate_id, binding in adapter.gates.items():
+            gate = gates.get(gate_id)
+            if gate is None:
+                continue
+            checks_by_id = {check.id: check for check in gate.checks}
+            for check_id in binding.checks:
+                check = checks_by_id.get(check_id)
+                if check is None:
+                    err(
+                        5,
+                        f"invariant 5 (authority): adapter {adapter.id!r} binds unknown "
+                        f"check {gate_id}.{check_id}",
+                    )
+                elif check_owner(gate, check) != adapter.role:
+                    err(
+                        5,
+                        f"invariant 5 (authority): adapter {adapter.id!r} binds "
+                        f"{gate_id}.{check_id} owned by {check_owner(gate, check)!r}",
+                    )
     if doc.profile_id and profile.id and doc.profile_id != profile.id:
         err(
             1,
@@ -287,7 +303,7 @@ def validate(
         if (
             gate is None
             or check is None
-            or evidence.get("issuerRole") != gate.owner
+            or evidence.get("issuerRole") != check_owner(gate, check)
             or kind != check.evidence_kind
         ):
             err(5, f"invariant 5 (authority): invalid evidence identity for {evidence_id!r}")
@@ -363,16 +379,24 @@ def validate(
             continue
         if bundle.get("gate") != gate.id or bundle.get("issuerRole") != gate.owner:
             err(5, f"invariant 5 (authority): bundle authority invalid for {gate.id}")
-        adapter = adapters_by_role.get(gate.owner)
-        if adapter is None or gate.id not in adapter.gates:
-            err(5, f"invariant 5 (authority): missing owner adapter for {gate.id}")
-        elif set(adapter.gates[gate.id].checks) != {check.id for check in gate.checks}:
-            err(5, f"invariant 5 (authority): adapter bindings do not match {gate.id}")
+        for check in gate.checks:
+            role = check_owner(gate, check)
+            check_adapter = adapters_by_role.get(role)
+            if (
+                check_adapter is None
+                or gate.id not in check_adapter.gates
+                or check.id not in check_adapter.gates[gate.id].checks
+            ):
+                err(
+                    5,
+                    f"invariant 5 (authority): missing adapter binding for "
+                    f"{gate.id}.{check.id} (role {role!r})",
+                )
         bundle_fp = bundle.get("inputFingerprint")
         if receipt.get("fingerprint") != bundle_fp:
             err(3, f"invariant 3 (bind): receipt/bundle mismatch for {gate.id}")
         try:
-            computed = fingerprint_for_gate(doc, gate, workspace, adapter)
+            computed = fingerprint_for_gate(doc, gate, workspace, adapters_by_role)
         except ValueError as exc:
             err(4, f"invariant 4 (state): {exc}")
             computed = None
@@ -410,7 +434,7 @@ def validate(
             if (
                 check is None
                 or child.get("gate") != gate.id
-                or child.get("issuerRole") != gate.owner
+                or child.get("issuerRole") != check_owner(gate, check)
                 or child.get("kind") != check.evidence_kind
             ):
                 err(5, f"invariant 5 (authority): invalid check evidence in {gate.id}")

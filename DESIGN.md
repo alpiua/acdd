@@ -27,15 +27,22 @@ The task-delivery profile has five global gates and eight checks:
 | Gate | Checks | Purpose |
 | --- | --- | --- |
 | `design/v1` | `design-basis`, `plan-shape` | Freeze intent, boundaries, Inputs, and a bounded Plan. |
-| `contract/v1` | `decomposition`, `matrix`, `executable-proof` | Freeze subtask scope, behavior, affected paths, and proof obligations. |
+| `contract/v1` | `decomposition`, `executable-proof` (includes matrix), `contract-verify` | Freeze subtask scope, matrix+RED proof, then LLM verify before finalize. |
 | `build/v1` | `runtime-and-integration` | Implement the scope through TDD and prove the settled tree. |
-| `review/v1` | `independent-review` | Challenge completed work across declared review dimensions. |
+| `review/v1` | `independent-review` | Code review of completed work across declared review dimensions. |
 | `handoff/v1` | `repository-handoff` | Close repository-specific work with current evidence. |
 
-The task Review dimensions are `parity`, `security`, and `code`. The planning
-profile is separate: `design/v1`, `decompose/v1`, and `review/v1` create or
-improve a bounded planning set; its dimensions are `completeness` and
-`consistency`. It does not implement source changes.
+`contract-verify` is owned by the `contract-verify` adapter role (check-level
+owner). Task contract-verify dimensions are `completeness`, `chain-coverage`,
+`proof-strength`, and `parallel-safety`. The task Code review (`review/v1`)
+dimensions remain `parity`, `security`, and `code`.
+
+The planning profile is separate: `design/v1`, `decompose/v1` (with
+`decomposition`, `matrix`, and `contract-verify`), and `review/v1` create or
+improve a bounded planning set. Plan decompose-verify dimensions are
+`completeness`, `chain-coverage`, and `parallel-safety`. Plan Code review
+dimensions are `completeness` and `consistency`. It does not implement source
+changes.
 
 A receipt table contains exactly the current profile's gate rows in order. A
 terminal row requires every earlier gate to be `pass` or `inapplicable`;
@@ -109,9 +116,14 @@ owner, boundaries, affected callers, non-goals, and forbidden effects.
 ### 2. Contract
 
 `decomposition` assigns every required change to a bounded subtask.
-`matrix` maps producers, consumers, authorities, data flow, backends, reads,
-and writes. `executable-proof` fixes the pre-change failing proof, post-fix
-invariant, forbidden effects, and affected dimensions.
+`executable-proof` continues per subtask: matrix content (producers, consumers,
+authorities, data flow, backends, reads, writes) plus the pre-change failing
+proof, post-fix invariant, forbidden effects, and affected dimensions.
+`contract-verify` is an LLM substance check (check owner `contract-verify`) that
+must pass with no open corrections before finalize. Its pass terminal includes a
+**Delivery command**: parallel waves and a directive to launch one subagent per
+subtask in each ready wave. Tests derived afterward must cover the frozen
+contract, not trivia.
 
 The expected failure of `executable-proof` establishes the functional
 acceptance boundary. Contract does not run a TDD iteration itself: Build derives
@@ -119,7 +131,8 @@ a focused TDD test from each subtask's frozen scope and acceptance.
 
 ### 3. Build
 
-Build carries the frozen Contract into the repository. Each approved subtask is
+Build carries the frozen Contract into the repository. Prefer one subagent per
+subtask following the verify Delivery command waves. Each approved subtask is
 a distinct unit of behavior: its acceptance, invariant, and forbidden effects
 give its focused functional test a clear subject.
 
@@ -136,12 +149,13 @@ it is not a second subtask receipt. When individual behavior tests are green,
 `runtime-and-integration` looks at the settled tree as a whole and provides the
 repository-level evidence that the completed subtasks still work together.
 
-### 4. Review
+### 4. Code review
 
-Review is external to the core. The review host selects reviewer sessions,
-models, and the read-only boundary; ACDD receives only its JSONL transcript.
-For `acdd/task/v1`, reviewers receive the settled Build tree and Contract. For
-`acdd/plan/v1`, they receive the settled planning set after Decompose.
+Review (`review/v1`) is external to the core and distinct from `contract-verify`.
+The review host selects reviewer sessions, models, and the read-only boundary;
+ACDD receives only its JSONL transcript. For `acdd/task/v1`, reviewers receive
+the settled Build tree and Contract. For `acdd/plan/v1`, they receive the
+settled planning set after Decompose.
 
 Independent reviewers may work in parallel, but one collector writes each
 completed response before interpreting it. Every preterminal record is
@@ -186,16 +200,18 @@ the bundle, not a ninth profile check.
 
 `acdd/plan/v1` uses the same document shape and evidence lifecycle, but its
 scope is a planning set rather than a source change. The Plan adapter performs
-Design and Decompose; the Review adapter performs Review.
+Design and Decompose basis/command checks; the contract-verify adapter performs
+decompose verify; the Review adapter performs Code review.
 
 1. **Design** records `design-basis` and validates `plan-shape`: the planning
    outcome, boundaries, Inputs, and bounded subtasks. It may be inapplicable
    only with `plan.no-artifact` and no check evidence.
-2. **Decompose** records `decomposition` and `matrix`: every planning change
-   has a bounded subtask, and its documents, owners, dependencies, and affected
-   paths are explicit.
-3. **Review** supplies the independent transcript for `completeness` and
-   `consistency` across the settled planning set.
+2. **Decompose** records `decomposition`, `matrix`, and `contract-verify`: every
+   planning change has a bounded subtask, its documents/owners/dependencies are
+   explicit, and an LLM verify pass grants permission to finalize with no open
+   corrections.
+3. **Code review** (`review/v1`) supplies the independent transcript for
+   `completeness` and `consistency` across the settled planning set.
 
 The planning profile has no Contract source bundle, TDD, Build, or Handoff.
 A resulting implementation candidate starts a separate task-delivery document.
@@ -225,12 +241,18 @@ re-validates without those artifacts.
 
 ## Adapters and prompt context
 
-An adapter is the repository context in which a gate’s checks run and its
+An adapter is the repository context in which a role’s checks run and its
 artifacts are kept. Its role does not identify a person or team. It binds
 `role → gate → check → {cwd, argv, timeoutSeconds?, promptAppend?}`; every
-required check for that role has exactly one binding. For command and basis
-checks, `acdd record` runs `argv` without a shell. For Review, the binding is
-a host launch template: `acdd review` only validates a supplied transcript.
+required check for that role has exactly one binding. A check may declare an
+`owner` different from the gate owner (check-level owner); fingerprinting and
+`record`/`review` resolve the owning adapter per check. Optional
+`contractSections` on a gate binding hash named Markdown `#`/`##` section bodies
+into the gate fingerprint.
+
+For command and basis checks, `acdd record` runs `argv` without a shell. For
+review-kind evidence (`review/v1` or `contract-verify`), the binding is a host
+launch template: `acdd review` only validates a supplied transcript.
 All cwd, adapter, artifact, and prompt paths stay below the workspace root.
 
 Adapters live under `.acdd/` directories. Discovery is **scoped by document path**
@@ -245,10 +267,11 @@ Adapters live under `.acdd/` directories. Discovery is **scoped by document path
 
 | Adapter type | Typical file | Binds |
 | --- | --- | --- |
-| **Task** | `.acdd/task.yaml` | Design, Contract, Handoff (repository-handoff; process report on finalize). |
+| **Task** | `.acdd/task.yaml` | Design, Contract (decomposition + executable-proof), Handoff. |
+| **Contract-verify** | `.acdd/contract-verify.yaml` | `contract/v1.contract-verify` and/or `decompose/v1.contract-verify`. |
 | **Implementation** | `.acdd/implementation.yaml` | Build. |
-| **Review** | `.acdd/review.yaml` | Review launch template; transcript via `acdd review`. |
-| **Plan** | `.acdd/plan.yaml` | Design and Decompose in the planning profile. |
+| **Review** | `.acdd/review.yaml` | Code review (`review/v1`) launch template; transcript via `acdd review`. |
+| **Plan** | `.acdd/plan.yaml` | Design and Decompose basis/command checks in the planning profile. |
 
 Create the relevant file with `apiVersion: acdd/adapter/v1`, a stable `id`, its
 `role`, and bindings for the listed gates and their exact checks. Its default

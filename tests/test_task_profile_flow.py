@@ -68,11 +68,22 @@ gates:
   contract/v1:
     checks:
       decomposition: {argv: [/bin/true]}
-      matrix: {argv: [/bin/true]}
       executable-proof: {argv: [python3, -c, "import sys; sys.exit(1)"]}
   handoff/v1:
     checks:
       repository-handoff: {argv: [/bin/true]}
+""",
+        encoding="utf-8",
+    )
+    (adapters / "contract-verify.yaml").write_text(
+        """\
+apiVersion: acdd/adapter/v1
+id: contract-verify
+role: contract-verify
+gates:
+  contract/v1:
+    checks:
+      contract-verify: {argv: [/bin/true]}
 """,
         encoding="utf-8",
     )
@@ -107,35 +118,88 @@ gates:
             == 0
         )
 
-    for gate, check in (
-        ("design/v1", "design-basis"),
-        ("design/v1", "plan-shape"),
-        ("contract/v1", "decomposition"),
-        ("contract/v1", "matrix"),
-    ):
-        args = ("--gate", gate, "--check", check, "--id", f"{gate[:3]}.{check}")
-        run(
-            "record",
-            *args,
-            *(
-                ("--classified-ref", "design.md=task")
-                if check in {"design-basis", "decomposition", "matrix"}
-                else ()
-            ),
-        )
-        if check == "plan-shape":
-            run("finalize", "--gate", gate, "--id", "design.bundle")
-        if check == "matrix":
-            run(
-                "record",
-                "--gate",
-                "contract/v1",
-                "--check",
-                "executable-proof",
-                "--id",
-                "contract.proof",
+    run(
+        "record",
+        "--gate",
+        "design/v1",
+        "--check",
+        "design-basis",
+        "--id",
+        "des.design-basis",
+        "--classified-ref",
+        "design.md=task",
+    )
+    run("record", "--gate", "design/v1", "--check", "plan-shape", "--id", "des.plan-shape")
+    run("finalize", "--gate", "design/v1", "--id", "design.bundle")
+    run(
+        "record",
+        "--gate",
+        "contract/v1",
+        "--check",
+        "decomposition",
+        "--id",
+        "con.decomposition",
+        "--classified-ref",
+        "design.md=task",
+    )
+    run(
+        "record",
+        "--gate",
+        "contract/v1",
+        "--check",
+        "executable-proof",
+        "--id",
+        "contract.proof",
+    )
+    verify_transcript = adapters / "artifacts" / "contract-verify.jsonl"
+    verify_transcript.parent.mkdir(exist_ok=True)
+    verify_transcript.write_text(
+        "\n".join(
+            json.dumps(row)
+            for row in (
+                {
+                    "type": "review_raw",
+                    "reviewerSessionUuid": "00000000-0000-4000-8000-000000000012",
+                    "raw": "permission granted; no open fixes",
+                },
+                {
+                    "type": "review_terminal",
+                    "evidenceId": "contract.verify",
+                    "gate": "contract/v1",
+                    "check": "contract-verify",
+                    "scope": ["design.md"],
+                    "performedChecks": [
+                        "completeness",
+                        "chain-coverage",
+                        "proof-strength",
+                        "parallel-safety",
+                    ],
+                    "verdict": "pass",
+                    "authorSessionUuid": "00000000-0000-4000-8000-000000000011",
+                    "reviewerSessionUuid": "00000000-0000-4000-8000-000000000012",
+                    "reviewedSessionUuids": ["00000000-0000-4000-8000-000000000012"],
+                },
             )
-            run("finalize", "--gate", "contract/v1", "--id", "contract.bundle")
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    run(
+        "review",
+        "--gate",
+        "contract/v1",
+        "--check",
+        "contract-verify",
+        "--id",
+        "contract.verify",
+        "--transcript",
+        ".acdd/artifacts/contract-verify.jsonl",
+        "--author-uuid",
+        "00000000-0000-4000-8000-000000000011",
+        "--reviewer-uuid",
+        "00000000-0000-4000-8000-000000000012",
+    )
+    run("finalize", "--gate", "contract/v1", "--id", "contract.bundle")
     run(
         "record",
         "--gate",
@@ -147,7 +211,6 @@ gates:
     )
     run("finalize", "--gate", "build/v1", "--id", "build.bundle")
     transcript = adapters / "artifacts" / "review.jsonl"
-    transcript.parent.mkdir(exist_ok=True)
     transcript.write_text(
         "\n".join(
             json.dumps(row)

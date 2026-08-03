@@ -6,6 +6,16 @@ live system, implements only the approved scope, and closes with current
 executable evidence. It connects existing tests, release processes, issue
 trackers, and review tools through profiles and repository adapters.
 
+```mermaid
+flowchart LR
+  design[design/v1]
+  contract[contract/v1]
+  build[build/v1]
+  review[review/v1]
+  handoff[handoff/v1]
+  design --> contract --> build --> review --> handoff
+```
+
 ACDD provides a task-delivery profile and a smaller planning profile. This
 guide focuses task delivery: one Markdown task document, one profile, physical
 evidence artifacts, and a validator. It is not a scheduler, review runtime, or
@@ -17,8 +27,9 @@ Gates run in order. A gate may finalize or validate as terminal only when every
 earlier gate is already pass or inapplicable.
 
 The gates form one evidence chain: decide what is safe to change, freeze the
-required behavior and proof obligations, implement with TDD, challenge the
-settled change independently, then close it with current evidence.
+required behavior and proof obligations (including LLM `contract-verify`),
+implement with TDD (preferably one subagent per subtask), challenge the settled
+change in Code review, then close with current evidence.
 
 ### 1. Design
 
@@ -37,14 +48,20 @@ contract. Finalizing this gate creates one append-only source-contract bundle.
 Each current subtask has a checksummed part and matching binding, so changing a
 part and recomputing only its self-hash is rejected during Build.
 
-- **decomposition** — shows that every required change belongs to one bounded
-  subtask and that dependent work has a clear order.
-- **matrix** — maps the affected producers, consumers, data flow, authorities,
-  backends, reads, and writes so no relevant path is implicit.
-- **executable-proof** — establishes a focused pre-change proof of the
-  unresolved behavior, plus the post-fix invariant, affected dimensions, and
-  forbidden effects. Its expected failure fixes the acceptance boundary and
-  supplies the scope for Build's TDD test; it is not the TDD cycle itself.
+Order inside the gate:
+
+1. **decomposition** — every required change belongs to one bounded subtask with
+   clear order.
+2. **executable-proof** — matrix content (producers, consumers, data flow,
+   authorities, backends, reads, writes) is part of this check, together with the
+   focused pre-change RED proof. Expected failure fixes the acceptance boundary;
+   tests must cover the frozen contract, not trivia.
+3. **contract-verify** — LLM substance check via the `contract-verify` adapter
+   (completeness, chain-coverage, proof-strength, parallel-safety). Pass only
+   with permission and no open corrections. On pass, the verifier states which
+   subtasks may run in parallel and directs the delivery agent to launch a
+   separate subagent per ready subtask (respecting `dependsOn` / `supersedes`).
+   This is not Code review (`review/v1`).
 
 ### Subtasks: the unit of implementation
 
@@ -91,11 +108,11 @@ subtask never proves another subtask's acceptance.
   the focused tests are green. It demonstrates the intended runtime behavior
   and the relevant integration or quality guarantees on the settled tree.
 
-### 4. Review
+### 4. Code review
 
 Challenge the settled change across the task profile's parity, security, and
-code dimensions. The planning profile instead checks its settled set for
-completeness and consistency.
+code dimensions (`review/v1`). The planning profile instead checks its settled
+set for completeness and consistency. This is not `contract-verify`.
 
 - **independent-review** — registers an external transcript. The review host
   selects the independent read-only sessions; it retains each response as raw
@@ -120,8 +137,8 @@ implements source changes.
 | Gate | Checks | Purpose |
 | --- | --- | --- |
 | Design | design-basis, plan-shape | Freeze the planning outcome, boundaries, Inputs, and bounded Plan. May be inapplicable only as plan.no-artifact. |
-| Decompose | decomposition, matrix | Make the planning set coherent and bounded. |
-| Review | independent-review | Challenge the settled set for completeness and consistency. |
+| Decompose | decomposition, matrix, contract-verify | Make the planning set coherent and bounded, then LLM-verify before finalize. |
+| Code review | independent-review | Challenge the settled set for completeness and consistency (`review/v1`). |
 
 Use the Plan and Review adapters described below. See the
 [plan example](acdd/share/examples/plan-example.md).
@@ -143,8 +160,10 @@ Use the Plan and Review adapters described below. See the
    Plan: adding or replacing a subtask alone leaves global receipts current. A
    stale receipt is renewed only by current evidence for that same gate; any
    other stale or invalid state still blocks finalization.
-5. **Authority** — the bundle/check issuer is the gate owner, and the adapter
-   binds exactly that gate's checks.
+5. **Authority** — each check's issuer is the check owner (defaults to the gate
+   owner); the matching adapter binds that check. Bundle issuer remains the gate
+   owner. Adapters may bind gates from other profiles; only active-profile gates
+   are enforced.
 6. **Sub-task bounded** — IDs, paths inside declared Inputs, acceptance,
    dependencies, replacements, and write/read conflicts are valid and explicit.
    Every subtask after Contract has one separately hashed part and matching
@@ -159,9 +178,10 @@ Use the Plan and Review adapters described below. See the
    timeouts, execution errors, and reserved exits 124/127 never pass; basis
    evidence is held to the same honesty.
 10. **Discovery authentic** — discovered adapters stay below the workspace root;
-    duplicate roles and unknown active-gate bindings fail. A terminal gate also
-    needs its one owner adapter with exact check bindings. Adapters with no gate
-    in the active profile are ignored.
+    duplicate roles and unknown active-gate bindings fail. Every check needs its
+    owner adapter with an exact binding (check owner defaults to the gate owner);
+    the gate-owner adapter remains the bundle issuer. Adapters with no gate in
+    the active profile are ignored.
 11. **Review complete** — the review transcript preserves every raw reviewer
     response. Its confirmation reviewer, also a raw session, issues the final
     pass terminal; it acknowledges exactly all raw sessions, declares a
@@ -279,7 +299,8 @@ Adapters are YAML files under `.acdd/` with `apiVersion: acdd/adapter/v1`.
    discovery may load those package roots instead of walking the tree. Details
    are in [DESIGN.md](DESIGN.md#adapters-and-prompt-context).
 
-Task delivery needs roles task, implementation, and review. Planning needs plan
-and review. A Review binding is a host launch template; register the finished
-transcript with `acdd review`. Handoff records repository-handoff; finalize
-writes the process report onto that gate's bundle.
+Task delivery needs roles task, contract-verify, implementation, and review.
+Planning needs plan, contract-verify, and review. A Review or contract-verify
+binding is a host launch template; register the finished transcript with
+`acdd review`. Handoff records repository-handoff; finalize writes the process
+report onto that gate's bundle.

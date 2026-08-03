@@ -1,5 +1,5 @@
 ---
-name: acdd-v2-decompose
+name: acdd-decompose
 description: Prepare the decompose/v1 ACDD planning gate.
 ---
 
@@ -7,8 +7,9 @@ description: Prepare the decompose/v1 ACDD planning gate.
 
 ## Load
 
-Read the planning document, `acdd/plan/v1` profile, and Plan adapter. Load only
-the current check section, then append its `promptAppend` fragment if present.
+Read the planning document, `acdd/plan/v1` profile, Plan adapter, and
+`contract-verify` adapter. Load only the current check section, then append its
+`promptAppend` fragment if present.
 
 ## decomposition
 
@@ -20,6 +21,14 @@ is explicit. Do not assign overlapping planning work without ordering.
 Classify planning artifacts, owners, consumers, reads, writes, dependencies, and
 affected paths. Record basis references covering the declared scope.
 
+## contract-verify
+
+Run through the `contract-verify` adapter (check owner). Substance-check
+decomposition and matrix; require parallel-safety. Use the required
+nonconformance form. Do **not** grant permission while any `requiredFix` is
+open. Register the verify transcript with `acdd review` only after permission.
+
 ## Evidence
 
-Record both basis checks and finalize only when both are current.
+Record decomposition, matrix, and contract-verify, then finalize only when all
+are current.

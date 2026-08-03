@@ -1,5 +1,5 @@
 ---
-name: acdd-v2-design
+name: acdd-design
 description: Prepare the design/v1 ACDD gate.
 ---
 
@@ -12,11 +12,21 @@ check section. Then append the bound `promptAppend` fragment, if present.
 
 ## design-basis
 
-State the outcome, affected users or systems, non-goals, acceptance result, the
-reachable scenario, canonical owner, trust or persistence boundary, affected
-callers, and forbidden effects. Stop for a user decision on public, persisted,
-security, concurrency, migration, or compatibility changes. Record classified
-references covering the declared input scope.
+Write several short prose paragraphs (not only a table or bullet list) that
+state **what** this change is, **why** it exists, **what it connects to**, and
+**who** uses or owns it, plus how it sits in the repository's planning
+authority when one exists (roadmap, phase, plan, or equivalent). Use finished
+formulations only: no scratchpad thinking, rejected-proposal history, or
+negatives except durable non-goals/decisions with a real owner or fact. Then
+record the outcome, affected users or systems, non-goals, acceptance result,
+the reachable scenario, canonical owner, trust or persistence boundary,
+affected callers, and forbidden effects. Stop for a user decision on public,
+persisted, security, concurrency, migration, or compatibility changes. Record
+classified references covering the declared input scope.
+
+Before filling the basis, survey the repo's current planning set and roadmap
+(or equivalent authority docs) so the prose and boundaries match live context.
+Repository-specific paths, depth, and house style belong in `promptAppend`.
 
 ## plan-shape
 

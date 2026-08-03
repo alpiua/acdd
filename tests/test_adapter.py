@@ -19,8 +19,36 @@ def test_task_profile_is_five_gates_and_eight_checks():
         "handoff/v1",
     ]
     assert sum(len(gate.checks) for gate in profile.gates) == 8
+    assert [check.id for check in profile.gates[1].checks] == [
+        "decomposition",
+        "executable-proof",
+        "contract-verify",
+    ]
+    assert profile.gates[1].review_dimensions == (
+        "completeness",
+        "chain-coverage",
+        "proof-strength",
+        "parallel-safety",
+    )
     assert [check.id for check in profile.gates[2].checks] == ["runtime-and-integration"]
     assert profile.gates[3].review_dimensions == ("parity", "security", "code")
+
+
+def test_plan_profile_includes_contract_verify():
+    root = Path(__file__).resolve().parents[1]
+    profile = load_profile(root / "profiles" / "plan" / "v1.yaml")
+    assert sum(len(gate.checks) for gate in profile.gates) == 6
+    decompose = profile.gates[1]
+    assert [check.id for check in decompose.checks] == [
+        "decomposition",
+        "matrix",
+        "contract-verify",
+    ]
+    assert decompose.review_dimensions == (
+        "completeness",
+        "chain-coverage",
+        "parallel-safety",
+    )
 
 
 def test_adapter_requires_per_check_bindings(tmp_path: Path):
@@ -36,7 +64,7 @@ gates:
 """,
         encoding="utf-8",
     )
-    with pytest.raises(AdapterError, match="only checks"):
+    with pytest.raises(AdapterError, match="must contain checks"):
         load_adapter(path)
 
 

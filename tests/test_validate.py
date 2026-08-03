@@ -135,16 +135,13 @@ def test_invariant_6_rejects_unbounded_subtask(core):
 def _terminal_document(
     tmp_path: Path, *, kind: str, status: str, reason: str | None = None
 ) -> tuple[Document, Profile]:
+    from acdd.adapter import Adapter, CheckBinding, GateBinding
+
+    check_id = "independent-review" if kind == "review" else "runtime-and-integration"
     gate = Gate(
         "review/v1" if kind == "review" else "build/v1",
         "review" if kind == "review" else "implementation",
-        (
-            Check(
-                "independent-review" if kind == "review" else "runtime-and-integration",
-                kind,
-                "success",
-            ),
-        ),
+        (Check(check_id, kind, "success"),),
         (),
         ("pass", "inapplicable") if kind != "review" else ("pass",),
         ("build.no-runnable-source",),
@@ -185,7 +182,14 @@ def _terminal_document(
     document = Document(
         title="T", inputs=[], evidence=[], receipts=[], subtasks=[], path=tmp_path / "task.md"
     )
-    fingerprint = fingerprint_for_gate(document, gate, tmp_path, None)
+    adapter = Adapter(
+        gate.owner,
+        gate.owner,
+        "artifacts",
+        tmp_path,
+        {gate.id: GateBinding(checks={check_id: CheckBinding(argv=("/bin/true",))})},
+    )
+    fingerprint = fingerprint_for_gate(document, gate, tmp_path, adapter)
     child = {
         "kind": kind,
         "id": child_id,

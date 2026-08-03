@@ -9,6 +9,7 @@ from .model import (
     Gate,
     Profile,
     Subtask,
+    check_owner,
     load_document,
     load_profile,
 )
@@ -25,6 +26,7 @@ __all__ = [
     "Gate",
     "Profile",
     "Subtask",
+    "check_owner",
     "finalize_gate",
     "fingerprint_for_gate",
     "fingerprint_gate",

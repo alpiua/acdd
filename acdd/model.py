@@ -28,6 +28,7 @@ class Check:
     id: str
     evidence_kind: str
     command_outcome: str
+    owner: str | None = None
 
 
 @dataclass(frozen=True)
@@ -39,6 +40,11 @@ class Gate:
     terminals: tuple[str, ...]
     inapplicable_reason_codes: tuple[str, ...] = ()
     review_dimensions: tuple[str, ...] = ()
+
+
+def check_owner(gate: Gate, check: Check) -> str:
+    """Return the adapter role that owns a check (check.owner or gate.owner)."""
+    return check.owner or gate.owner
 
 
 @dataclass(frozen=True)
@@ -94,16 +100,18 @@ def _load_checks(gate_id: str, raw_checks: object) -> tuple[Check, ...]:
             check.get("evidenceKind"),
             check.get("commandOutcome", "success"),
         )
+        owner = check.get("owner")
         if (
             not isinstance(check_id, str)
             or not check_id
             or check_id in check_ids
             or kind not in EVIDENCE_KINDS - {"bundle"}
             or outcome not in {"success", "expected-failure"}
+            or (owner is not None and (not isinstance(owner, str) or not owner))
         ):
             raise AcddError(f"invalid check in {gate_id}")
         check_ids.add(check_id)
-        checks.append(Check(check_id, kind, outcome))
+        checks.append(Check(check_id, kind, outcome, owner))
     return tuple(checks)
 
 

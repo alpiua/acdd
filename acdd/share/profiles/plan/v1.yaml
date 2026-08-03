@@ -15,7 +15,9 @@ gates:
     checks:
       - {id: decomposition, evidenceKind: basis, commandOutcome: success}
       - {id: matrix, evidenceKind: basis, commandOutcome: success}
+      - {id: contract-verify, evidenceKind: review, commandOutcome: success, owner: contract-verify}
     invalidatesOn: [structure]
+    reviewDimensions: [completeness, chain-coverage, parallel-safety]
     terminals: [pass]
   - id: review/v1
     owner: review

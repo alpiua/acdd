@@ -21,6 +21,7 @@ class CheckBinding:
 @dataclass(frozen=True)
 class GateBinding:
     checks: dict[str, CheckBinding] = field(default_factory=dict)
+    contract_sections: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -97,13 +98,29 @@ def load_adapter(path: Path) -> Adapter:
     gates: dict[str, GateBinding] = {}
     for gate_id, raw_gate in _mapping(data.get("gates") or {}, "adapter gates").items():
         gate = _mapping(raw_gate, f"adapter gate {gate_id}")
-        if set(gate) != {"checks"}:
-            raise AdapterError(f"adapter gate {gate_id} must contain only checks")
+        unknown_gate = set(gate) - {"checks", "contractSections"}
+        if unknown_gate or "checks" not in gate:
+            raise AdapterError(
+                f"adapter gate {gate_id} must contain checks and optional contractSections"
+            )
+        sections = gate.get("contractSections")
+        if sections is None:
+            contract_sections: tuple[str, ...] = ()
+        elif (
+            not isinstance(sections, list)
+            or not sections
+            or not all(isinstance(item, str) and item.strip() for item in sections)
+        ):
+            raise AdapterError(
+                f"adapter gate {gate_id} contractSections must be a non-empty list of headings"
+            )
+        else:
+            contract_sections = tuple(item.strip() for item in sections)
         checks = {
             cid: _parse_check(gate_id, cid, raw)
             for cid, raw in _mapping(gate["checks"], f"checks for {gate_id}").items()
         }
-        gates[gate_id] = GateBinding(checks=checks)
+        gates[gate_id] = GateBinding(checks=checks, contract_sections=contract_sections)
     return Adapter(
         id=data["id"],
         role=data["role"],
