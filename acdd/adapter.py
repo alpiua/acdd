@@ -6,19 +6,17 @@ from pathlib import Path
 
 import yaml
 
-class AdapterError(ValueError): ...
 
+class AdapterError(ValueError): ...
 @dataclass(frozen=True)
 class CheckBinding:
     cwd: str = "."
     argv: tuple[str, ...] = ()
     prompt_append: str | None = None
     timeout_seconds: int = 300
-
 @dataclass(frozen=True)
 class GateBinding:
     checks: dict[str, CheckBinding] = field(default_factory=dict)
-
 @dataclass(frozen=True)
 class Adapter:
     id: str
@@ -39,12 +37,10 @@ class Adapter:
         if not path.is_file():
             raise AdapterError(f"promptAppend is missing: {binding.prompt_append!r}")
         return f"sha256:{hashlib.sha256(path.read_bytes()).hexdigest()}"
-
 def _mapping(value: object, label: str) -> dict:
     if not isinstance(value, dict):
         raise AdapterError(f"{label} must be a mapping")
     return value
-
 def _parse_check(gate_id: str, check_id: str, raw_check: object) -> CheckBinding:
     check = _mapping(raw_check, f"binding {gate_id}.{check_id}")
     if set(check) - {"cwd", "argv", "promptAppend", "timeoutSeconds"}:
@@ -62,7 +58,6 @@ def _parse_check(gate_id: str, check_id: str, raw_check: object) -> CheckBinding
     if not isinstance(timeout, int) or isinstance(timeout, bool) or timeout < 1:
         raise AdapterError(f"binding {gate_id}.{check_id} timeoutSeconds must be a positive integer")
     return CheckBinding(cwd=cwd, argv=tuple(argv), prompt_append=prompt_append, timeout_seconds=timeout)
-
 def load_adapter(path: Path) -> Adapter:
     path = path.resolve()
     data = _mapping(yaml.safe_load(path.read_text(encoding="utf-8")) or {}, "adapter")
@@ -87,7 +82,6 @@ def load_adapter(path: Path) -> Adapter:
         gates[gate_id] = GateBinding(checks=checks)
     return Adapter(id=data["id"], role=data["role"], artifact_dir=data.get("artifactDir", "artifacts"),
                    base_dir=path.parent, gates=gates)
-
 def index_adapters(adapters: list[Adapter]) -> dict[str, Adapter]:
     indexed: dict[str, Adapter] = {}
     for adapter in adapters:

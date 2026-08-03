@@ -1,6 +1,9 @@
 ---
 title: Fix memory leak in worker pool
 planning_profile: acdd/task/v1
+executable_proof:
+  argv: [uv, run, pytest, tests/worker/test_pool.py::test_expired_jobs_release, -q]
+  expected_failure: "assert"
 ---
 
 ## Plan

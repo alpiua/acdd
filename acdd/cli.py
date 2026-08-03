@@ -9,9 +9,11 @@ import yaml
 
 from ._doc import resolve_under
 from .adapter import Adapter, AdapterError, index_adapters, load_adapter
+from .discover import discover_adapter_paths
 from .model import AcddError, load_document, load_profile
-from .record import finalize_gate, record_check, record_review
+from .record import finalize_gate, record_check, record_review, record_subtask_contract
 from .validate import validate
+
 
 def _req(parser: argparse.ArgumentParser, *flags: str) -> None:
     for flag in flags:
@@ -19,7 +21,6 @@ def _req(parser: argparse.ArgumentParser, *flags: str) -> None:
         if flag == "--id":
             kwargs["dest"] = "evidence_id"
         parser.add_argument(flag, **kwargs)
-
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="acdd", description="ACDD v2 — 5 gates, checks per profile, 11 invariants")
     commands = parser.add_subparsers(dest="command", required=True)
@@ -41,8 +42,9 @@ def _parser() -> argparse.ArgumentParser:
     review = commands.add_parser("review", parents=[common])
     _req(review, "--gate", "--check", "--id", "--transcript", "--author-uuid", "--reviewer-uuid")
     review.add_argument("--verdict", default="pass")
+    subtask_contract = commands.add_parser("contract-subtask", parents=[common])
+    _req(subtask_contract, "--subtask", "--id")
     return parser
-
 def _load_confined(role: str | None, raw_path: str, *, workspace: Path) -> Adapter:
     try:
         resolved = resolve_under(workspace, raw_path, label="adapter")
@@ -52,26 +54,22 @@ def _load_confined(role: str | None, raw_path: str, *, workspace: Path) -> Adapt
     if role is not None and adapter.role != role:
         raise AcddError(f"adapter role {adapter.role!r} does not match {role!r}")
     return adapter
+def _discover(workspace: Path, document: Path | None = None) -> list[Path]:
+    if document is None:
+        from .discover import _walk_discover
+        return sorted(_walk_discover(workspace.resolve()))
+    return discover_adapter_paths(workspace, document)
 
-def _discover(workspace: Path) -> list[Path]:
-    found, stack = [], [workspace]
-    while stack:
-        directory = stack.pop()
-        try:
-            children = sorted(directory.iterdir())
-        except OSError:
-            continue
-        for child in children:
-            if child.is_dir() and not child.is_symlink():
-                if child.name == ".acdd2" or not child.name.startswith(".") and child.name != "node_modules":
-                    stack.append(child)
-            elif not child.is_symlink() and child.suffix == ".yaml" and child.parent.name == ".acdd2":
-                found.append(child)
-    return sorted(found)
 
-def _adapters(items: list[str], workspace: Path) -> list[Adapter]:
+def _adapters(
+    items: list[str],
+    workspace: Path,
+    active_gates: set[str],
+    *,
+    document: Path,
+) -> list[Adapter]:
     adapters: dict[str, Adapter] = {}
-    for path in _discover(workspace):
+    for path in _discover(workspace, document):
         try:
             data = yaml.safe_load(path.read_text(encoding="utf-8"))
         except yaml.YAMLError:
@@ -79,6 +77,8 @@ def _adapters(items: list[str], workspace: Path) -> list[Adapter]:
         if not isinstance(data, dict) or data.get("apiVersion") != "acdd/adapter/v1":
             continue
         adapter = load_adapter(path)
+        if not set(adapter.gates) & active_gates:
+            continue
         if adapter.role in adapters:
             raise AcddError(f"duplicate adapter role {adapter.role!r}: {path} and "
                             f"{adapters[adapter.role].base_dir}")
@@ -89,28 +89,25 @@ def _adapters(items: list[str], workspace: Path) -> list[Adapter]:
         role, raw_path = item.split("=", 1)
         adapters[role] = _load_confined(role, raw_path, workspace=workspace)
     return list(adapters.values())
-
 def _owner(adapters, role):
     return adapters.get(role) or (_ for _ in ()).throw(AcddError(f"missing adapter for owner role {role!r}"))
-
 def _gate(profile, gate_id):
     for gate in profile.gates:
         if gate.id == gate_id:
             return gate
     raise AcddError(f"unknown gate {gate_id!r}")
-
 def _context(args):
     profile = load_profile(Path(args.profile).resolve())
     document = load_document(Path(args.document).resolve())
     workspace = Path(args.workspace_root).resolve()
-    adapters = _adapters(args.adapter, workspace)
+    adapters = _adapters(
+        args.adapter, workspace, {gate.id for gate in profile.gates}, document=document.path
+    )
     return document, profile, index_adapters(adapters), workspace, adapters
-
 def _gate_adapter(args, gate_id):
     document, profile, adapters, workspace, _ = _context(args)
     gate = _gate(profile, gate_id)
     return document, gate, adapters.get(gate.owner) or _owner(adapters, gate.owner), workspace
-
 def cmd_validate(args) -> int:
     document, profile, _, workspace, adapters = _context(args)
     errors = validate(document, profile, adapters=adapters, workspace_root=workspace)
@@ -120,34 +117,45 @@ def cmd_validate(args) -> int:
         return 1
     print("ACDD VALID")
     return 0
-
 def cmd_fingerprint(args) -> int:
     from .fingerprint import fingerprint_for_gate
     document, profile, adapters, workspace, _ = _context(args)
     gate = _gate(profile, args.gate)
     print(fingerprint_for_gate(document, gate, workspace, adapters.get(gate.owner)))
     return 0
-
 def cmd_record(args) -> int:
-    document, gate, adapter, workspace = _gate_adapter(args, args.gate)
+    document, profile, adapters, workspace, _ = _context(args)
+    gate = _gate(profile, args.gate)
+    adapter = adapters.get(gate.owner) or _owner(adapters, gate.owner)
     classified_refs = [{"path": p, "role": r} for item in args.classified_ref
                        for p, r in [item.split("=", 1)]
                        if "=" in item or (_ for _ in ()).throw(AcddError("classified-ref must be path=role"))]
     payload, succeeded = record_check(document=document, workspace_root=workspace, gate=gate,
                                       check_id=args.check, evidence_id=args.evidence_id,
-                                      adapter=adapter, classified_refs=classified_refs)
+                                      adapter=adapter, classified_refs=classified_refs,
+                                      profile=profile)
     if payload:
         print(json.dumps(payload, sort_keys=True))
     return 0 if succeeded else 1
 
-def cmd_finalize(args) -> int:
-    document, gate, adapter, workspace = _gate_adapter(args, args.gate)
-    payload = finalize_gate(document=document, workspace_root=workspace, gate=gate,
-                            evidence_id=args.evidence_id, adapter=adapter,
-                            status=args.status, reason_code=args.reason_code)
+def cmd_contract_subtask(args) -> int:
+    document, profile, owners, workspace, adapters = _context(args)
+    gate = _gate(profile, "contract/v1")
+    adapter = owners.get(gate.owner) or _owner(owners, gate.owner)
+    payload = record_subtask_contract(document=document, profile=profile, workspace_root=workspace,
+                                      adapter=adapter, subtask_id=args.subtask,
+                                      evidence_id=args.evidence_id, adapters=adapters)
     print(json.dumps(payload, sort_keys=True))
     return 0
-
+def cmd_finalize(args) -> int:
+    document, profile, owners, workspace, adapters = _context(args)
+    gate = _gate(profile, args.gate)
+    adapter = owners.get(gate.owner) or _owner(owners, gate.owner)
+    payload = finalize_gate(document=document, profile=profile, adapters=adapters,
+                            workspace_root=workspace, gate=gate, evidence_id=args.evidence_id,
+                            adapter=adapter, status=args.status, reason_code=args.reason_code)
+    print(json.dumps(payload, sort_keys=True))
+    return 0
 def cmd_review(args) -> int:
     document, gate, adapter, workspace = _gate_adapter(args, args.gate)
     payload = record_review(document=document, workspace_root=workspace, gate=gate, check_id=args.check,
@@ -157,13 +165,12 @@ def cmd_review(args) -> int:
     print(json.dumps(payload, sort_keys=True))
     return 0
 _COMMANDS = {"validate": cmd_validate, "fingerprint": cmd_fingerprint, "record": cmd_record,
-             "finalize": cmd_finalize, "review": cmd_review}
-
+             "contract-subtask": cmd_contract_subtask, "finalize": cmd_finalize, "review": cmd_review}
 def main(argv: list[str] | None = None) -> int:
     try:
         args = _parser().parse_args(argv)
         return _COMMANDS[args.command](args)
-    except (AcddError, AdapterError, ValueError) as error:
+    except (AcddError, AdapterError, ValueError, yaml.YAMLError, OSError) as error:
         print(f"ACDD ERROR: {error}", file=sys.stderr)
         return 2
 if __name__ == "__main__":

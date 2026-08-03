@@ -5,13 +5,14 @@ artifactDir: artifacts
 gates:
   design/v1:
     checks:
-      design-basis: {cwd: ., argv: [python3, -m, task.design_basis, "{document}"]}
-      plan-shape: {cwd: ., argv: [python3, -m, task.plan_shape, "{document}"]}
+      design-basis: {cwd: ., argv: [python3, scripts/gate_check.py, "{document}", profiles/task/v1.yaml]}
+      plan-shape: {cwd: ., argv: [python3, scripts/gate_check.py, "{document}", profiles/task/v1.yaml]}
   contract/v1:
     checks:
-      decomposition: {cwd: ., argv: [python3, -m, task.decompose, "{document}"]}
-      matrix: {cwd: ., argv: [python3, -m, task.matrix, "{document}"]}
-      executable-proof: {cwd: ., argv: [python3, -m, task.proof, "{document}"]}
+      decomposition: {cwd: ., argv: [python3, scripts/gate_check.py, "{document}", profiles/task/v1.yaml]}
+      matrix: {cwd: ., argv: [python3, scripts/gate_check.py, "{document}", profiles/task/v1.yaml]}
+      executable-proof: {cwd: ., argv: [python3, scripts/declared_proof.py, "{document}"]}
   handoff/v1:
     checks:
-      repository-handoff: {cwd: ., argv: [python3, -m, task.handoff, "{document}"]}
+      repository-handoff: {cwd: ., argv: [python3, scripts/handoff_check.py, "{document}", profiles/task/v1.yaml]}
+      process-report: {cwd: ., argv: [/bin/true]}

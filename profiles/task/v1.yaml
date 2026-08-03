@@ -29,11 +29,12 @@ gates:
     checks:
       - {id: independent-review, evidenceKind: review, commandOutcome: success}
     invalidatesOn: [source, test, configuration, dependency]
-    reviewDimensions: [parity, security]
+    reviewDimensions: [parity, security, code]
     terminals: [pass]
   - id: handoff/v1
     owner: task
     checks:
       - {id: repository-handoff, evidenceKind: command, commandOutcome: success}
+      - {id: process-report, evidenceKind: report, commandOutcome: success}
     invalidatesOn: [source, test, configuration, dependency]
     terminals: [pass]

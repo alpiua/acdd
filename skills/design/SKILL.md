@@ -7,7 +7,7 @@ description: Prepare the design/v1 ACDD gate.
 
 ## Load
 
-Read the task document, task profile, and task adapter. Load only the current
+Read the document, selected profile, and owner adapter. Load only the current
 check section. Then append the bound `promptAppend` fragment, if present.
 
 ## design-basis
@@ -26,4 +26,6 @@ explicit writes, reads, acceptance, and dependencies.
 ## Evidence
 
 Record the basis check with classified references and the plan-shape check
-with its bound command. Finalize only after both are current.
+with its bound command. For acdd/plan/v1 with plan.no-artifact, record neither
+check; finalize inapplicable with that reason code. Otherwise finalize only
+after both are current.

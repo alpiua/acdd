@@ -3,7 +3,7 @@ revision = 3
 requires-python = ">=3.11"
 
 [[package]]
-name = "acdd-v2"
+name = "acdd"
 version = "0.3.0"
 source = { editable = "." }
 dependencies = [

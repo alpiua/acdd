@@ -8,9 +8,10 @@ from pathlib import Path
 
 import pytest
 
-from acdd._doc import sha256
+from acdd._doc import command_outcome_ok, sha256
 from acdd.adapter import AdapterError, load_adapter
 from acdd.cli import main
+from acdd.fingerprint import fingerprint_for_gate, fingerprint_gate
 from acdd.model import (
     AcddError,
     Check,
@@ -21,12 +22,16 @@ from acdd.model import (
     load_document,
     load_profile,
 )
-from acdd.fingerprint import fingerprint_for_gate, fingerprint_gate
 from acdd.validate import validate
 
 
 def _args(doc: Path, profile: Path, adapter: Path) -> list[str]:
     return [str(doc), str(profile), "--workspace-root", str(doc.parent), "--adapter", f"implementation={adapter}"]
+
+
+def _review_raw(*, reviewer_uuid: str = "00000000-0000-4000-8000-000000000002",
+                raw: str = '{"findings": []}') -> dict:
+    return {"type": "review_raw", "reviewerSessionUuid": reviewer_uuid, "raw": raw}
 
 
 def test_basis_artifact_with_failed_outcome_is_rejected(tmp_path: Path):
@@ -179,16 +184,41 @@ gates:
     terminal = {"type": "review_terminal", "evidenceId": "r1", "gate": "review/v1",
                 "check": "independent-review", "scope": ["src/"], "performedChecks": ["parity", "security"],
                 "verdict": "pass", "authorSessionUuid": "00000000-0000-4000-8000-000000000001",
-                "reviewerSessionUuid": "00000000-0000-4000-8000-000000000002"}
-    transcript.write_text(json.dumps(terminal) + "\n", encoding="utf-8")
+                "reviewerSessionUuid": "00000000-0000-4000-8000-000000000003",
+                "reviewedSessionUuids": ["00000000-0000-4000-8000-000000000002"]}
+    raw = _review_raw(raw="reviewer response without a machine-readable schema")
+    confirmation = _review_raw(reviewer_uuid="00000000-0000-4000-8000-000000000003",
+                               raw="confirmation review: PASS")
     document = Document(title="T", inputs=[], evidence=[], receipts=[], subtasks=[],
                         path=tmp_path / "d.md")
     document.path.write_text("---\ntitle: T\n---\n## Evidence\n\n## Receipts\n", encoding="utf-8")
     from acdd.record import record_review
+    def write_transcript():
+        transcript.write_text("\n".join(json.dumps(row) for row in (raw, confirmation, terminal)) + "\n", encoding="utf-8")
+    write_transcript()
+    with pytest.raises(AcddError, match="review transcript"):
+        record_review(document=document, workspace_root=tmp_path, gate=gate,
+                      check_id="independent-review", evidence_id="r1", adapter=adapter,
+                      transcript=Path("rev.jsonl"), author_uuid="00000000-0000-4000-8000-000000000001",
+                      reviewer_uuid="00000000-0000-4000-8000-000000000003", verdict="pass")
+    terminal["reviewedSessionUuids"].append("00000000-0000-4000-8000-000000000003")
+    terminal["verdict"] = "fail"; write_transcript()
+    with pytest.raises(AcddError, match="review_terminal"):
+        record_review(document=document, workspace_root=tmp_path, gate=gate,
+                      check_id="independent-review", evidence_id="r1", adapter=adapter,
+                      transcript=Path("rev.jsonl"), author_uuid="00000000-0000-4000-8000-000000000001",
+                      reviewer_uuid="00000000-0000-4000-8000-000000000003", verdict="pass")
+    terminal["verdict"] = "pass"; terminal["reviewerSessionUuid"] = "00000000-0000-4000-8000-000000000004"; write_transcript()
+    with pytest.raises(AcddError, match="session UUIDs"):
+        record_review(document=document, workspace_root=tmp_path, gate=gate,
+                      check_id="independent-review", evidence_id="r1", adapter=adapter,
+                      transcript=Path("rev.jsonl"), author_uuid="00000000-0000-4000-8000-000000000001",
+                      reviewer_uuid="00000000-0000-4000-8000-000000000003", verdict="pass")
+    terminal["reviewerSessionUuid"] = "00000000-0000-4000-8000-000000000003"; write_transcript()
     payload = record_review(document=document, workspace_root=tmp_path, gate=gate,
                             check_id="independent-review", evidence_id="r1", adapter=adapter,
                             transcript=Path("rev.jsonl"), author_uuid="00000000-0000-4000-8000-000000000001",
-                            reviewer_uuid="00000000-0000-4000-8000-000000000002", verdict="pass")
+                            reviewer_uuid="00000000-0000-4000-8000-000000000003", verdict="pass")
     assert payload["transcriptRef"] == "rev.jsonl"
     assert payload["artifactSha256"] == sha256(transcript)
 
@@ -267,7 +297,7 @@ def test_document_profile_mismatch_is_rejected(core):
     assert any(error.invariant == 1 and "declares" in str(error) for error in errors)
 
 
-def test_plan_edit_stales_receipt(core):
+def test_plan_edit_does_not_stale_receipt(core):
     doc, profile, adapter = core
     assert main(["record", *_args(doc, profile, adapter), "--gate", "build/v1",
                  "--check", "runtime-and-integration", "--id", "build.check"]) == 0
@@ -281,7 +311,7 @@ def test_plan_edit_stales_receipt(core):
     acceptance: guide written"""), encoding="utf-8")
     errors = validate(load_document(doc), load_profile(profile),
                       adapters=[load_adapter(adapter)], workspace_root=doc.parent)
-    assert any(error.invariant == 4 for error in errors)
+    assert not any(error.invariant == 4 for error in errors)
 
 
 def test_unrelated_input_type_does_not_stale_receipt(core):
@@ -318,9 +348,9 @@ def test_note_column_rules(tmp_path: Path):
     assert any(e.invariant == 1 for e in errors_for("blocked", ""))
 
 
-def test_acdd2_discovery_loads_adapters(core):
+def test_acdd_discovery_loads_adapters(core):
     doc, profile, adapter = core
-    discovered = doc.parent / "sub" / ".acdd2"
+    discovered = doc.parent / "sub" / ".acdd"
     discovered.mkdir(parents=True)
     (discovered / "impl.yaml").write_text(adapter.read_text(encoding="utf-8"), encoding="utf-8")
     args = [str(doc), str(profile), "--workspace-root", str(doc.parent)]
@@ -330,10 +360,10 @@ def test_acdd2_discovery_loads_adapters(core):
     assert main(["validate", *args]) == 0
 
 
-def test_acdd2_discovery_rejects_duplicate_roles(core):
+def test_acdd_discovery_rejects_duplicate_roles(core):
     doc, profile, adapter = core
     for name in ("one", "two"):
-        directory = doc.parent / name / ".acdd2"
+        directory = doc.parent / name / ".acdd"
         directory.mkdir(parents=True)
         (directory / "impl.yaml").write_text(adapter.read_text(encoding="utf-8"), encoding="utf-8")
     assert main(["validate", str(doc), str(profile), "--workspace-root", str(doc.parent)]) == 2
@@ -347,12 +377,12 @@ def test_adapter_outside_workspace_is_rejected(core):
 
 def test_discovery_prunes_vendor_dirs(core):
     doc, _profile, adapter = core
-    stray = doc.parent / ".venv" / "lib" / ".acdd2"
+    stray = doc.parent / ".venv" / "lib" / ".acdd"
     stray.mkdir(parents=True)
     (stray / "stray.yaml").write_text(adapter.read_text(encoding="utf-8"), encoding="utf-8")
     from acdd.cli import _discover
     assert _discover(doc.parent) == []
-    nested = doc.parent / "pkg" / ".acdd2"
+    nested = doc.parent / "pkg" / ".acdd"
     nested.mkdir(parents=True)
     (nested / "impl.yaml").write_text(adapter.read_text(encoding="utf-8"), encoding="utf-8")
     assert _discover(doc.parent) == [nested / "impl.yaml"]
@@ -396,11 +426,13 @@ gates:
     gate = Gate("review/v1", "review", (Check("independent-review", "review", "success"),), (),
                 ("pass",), (), ("parity", "security"))
     transcript = tmp_path / "rev.jsonl"
+    raw = _review_raw()
     terminal = {"type": "review_terminal", "evidenceId": "r1", "gate": "review/v1",
                 "check": "independent-review", "scope": ["src/"], "performedChecks": ["parity"],
                 "verdict": "pass", "authorSessionUuid": "00000000-0000-4000-8000-000000000001",
-                "reviewerSessionUuid": "00000000-0000-4000-8000-000000000002"}
-    transcript.write_text(json.dumps(terminal) + "\n", encoding="utf-8")
+                "reviewerSessionUuid": "00000000-0000-4000-8000-000000000002",
+                "reviewedSessionUuids": ["00000000-0000-4000-8000-000000000002"]}
+    transcript.write_text("\n".join(json.dumps(row) for row in (raw, terminal)) + "\n", encoding="utf-8")
     from acdd.record import record_review
     document = Document(title="T", inputs=[], evidence=[], receipts=[], subtasks=[],
                         path=tmp_path / "d.md")
@@ -410,7 +442,7 @@ gates:
                       transcript=transcript, author_uuid="00000000-0000-4000-8000-000000000001",
                       reviewer_uuid="00000000-0000-4000-8000-000000000002", verdict="pass")
     terminal["performedChecks"] = ["parity", "security", "performance"]
-    transcript.write_text(json.dumps(terminal) + "\n", encoding="utf-8")
+    transcript.write_text("\n".join(json.dumps(row) for row in (raw, terminal)) + "\n", encoding="utf-8")
     record_review(document=document, workspace_root=tmp_path, gate=gate,
                   check_id="independent-review", evidence_id="r1", adapter=adapter,
                   transcript=transcript, author_uuid="00000000-0000-4000-8000-000000000001",
@@ -419,8 +451,8 @@ gates:
 
 def test_discovery_rejects_adapter_with_unknown_gate(core):
     doc, profile, _adapter = core
-    (doc.parent / "side" / ".acdd2").mkdir(parents=True)
-    (doc.parent / "side" / ".acdd2" / "x.yaml").write_text("""\
+    (doc.parent / "side" / ".acdd").mkdir(parents=True)
+    (doc.parent / "side" / ".acdd" / "x.yaml").write_text("""\
 apiVersion: acdd/adapter/v1
 id: stray
 role: implementation
@@ -440,6 +472,23 @@ gates:
         sys.stderr = original
     assert rc == 1
     assert "invariant 10" in buf.getvalue()
+
+
+def test_discovery_ignores_adapters_for_inactive_profile_roles(core):
+    doc, profile, adapter = core
+    (doc.parent / "plan" / ".acdd").mkdir(parents=True)
+    (doc.parent / "plan" / ".acdd" / "plan.yaml").write_text("""\
+apiVersion: acdd/adapter/v1
+id: plan
+role: plan
+gates:
+  decompose/v1:
+    checks:
+      matrix: {argv: [/bin/true]}
+""", encoding="utf-8")
+
+    assert main(["validate", str(doc), str(profile), "--workspace-root", str(doc.parent),
+                 "--adapter", f"implementation={adapter}"]) == 0
 
 
 def test_profile_rejects_review_dimensions_without_review_check(tmp_path: Path):
@@ -468,8 +517,9 @@ def test_review_transcript_non_string_elements_rejected(tmp_path: Path):
     terminal = {"type": "review_terminal", "evidenceId": "r1", "gate": "review/v1",
                 "check": "independent-review", "scope": ["src/"], "performedChecks": [42, 42, "parity"],
                 "verdict": "pass", "authorSessionUuid": "00000000-0000-4000-8000-000000000001",
-                "reviewerSessionUuid": "00000000-0000-4000-8000-000000000002"}
-    artifact.write_text(json.dumps(terminal) + "\n", encoding="utf-8")
+                "reviewerSessionUuid": "00000000-0000-4000-8000-000000000002",
+                "reviewedSessionUuids": ["00000000-0000-4000-8000-000000000002"]}
+    artifact.write_text("\n".join(json.dumps(row) for row in (_review_raw(), terminal)) + "\n", encoding="utf-8")
     document = Document(title="T", inputs=[], evidence=[{
         "kind": "review", "id": "r1", "gate": "review/v1", "check": "independent-review",
         "issuerRole": "review", "transcriptRef": "rev.jsonl", "artifactSha256": sha256(artifact),
@@ -478,14 +528,17 @@ def test_review_transcript_non_string_elements_rejected(tmp_path: Path):
         receipts=[], subtasks=[], path=tmp_path / "t.md")
     errors = validate(document, Profile("t", [gate]), workspace_root=tmp_path)
     assert any(error.invariant == 11 for error in errors)
+    artifact.write_text("not JSON\n", encoding="utf-8")
+    errors = validate(document, Profile("t", [gate]), workspace_root=tmp_path)
+    assert any(error.invariant == 2 for error in errors)
 
 
 def test_discovery_rejects_symlinked_adapter_files(tmp_path: Path):
     import os
     real = tmp_path / "real.yaml"
     real.write_text("apiVersion: acdd/adapter/v1\nid: x\nrole: task\ngates: {}", encoding="utf-8")
-    (tmp_path / ".acdd2").mkdir()
-    lnk = tmp_path / ".acdd2" / "x.yaml"
+    (tmp_path / ".acdd").mkdir()
+    lnk = tmp_path / ".acdd" / "x.yaml"
     os.symlink(real, lnk)
     from acdd.cli import _discover
     assert _discover(tmp_path) == []
@@ -591,3 +644,91 @@ def test_inapplicable_with_empty_bundle_passes(core):
                  "--reason-code", "build.no-runnable-source"]) == 0
     assert validate(load_document(doc), load_profile(profile),
                     adapters=[load_adapter(adapter)], workspace_root=doc.parent) == []
+
+
+def test_profile_rejects_scalar_invalidates_on(tmp_path: Path):
+    profile = tmp_path / "profile.yaml"
+    profile.write_text("""
+apiVersion: acdd/profile/v1
+kind: profile
+id: t
+gates:
+  - id: build/v1
+    owner: implementation
+    checks: [{id: c, evidenceKind: command}]
+    invalidatesOn: source
+    terminals: [pass]
+""", encoding="utf-8")
+    with pytest.raises(AcddError, match="invalidatesOn"):
+        load_profile(profile)
+
+
+def test_cli_reports_malformed_profile_yaml(tmp_path: Path, capsys):
+    profile = tmp_path / "profile.yaml"
+    profile.write_text("gates: [", encoding="utf-8")
+    assert main(["validate", str(tmp_path / "missing.md"), str(profile)]) == 2
+    assert "ACDD ERROR:" in capsys.readouterr().err
+
+
+def test_finalize_rejects_missing_predecessor_receipt(core):
+    doc, profile, adapter = core
+    profile.write_text("""
+apiVersion: acdd/profile/v1
+kind: profile
+id: test/v1
+gates:
+  - id: design/v1
+    owner: task
+    checks: [{id: c, evidenceKind: command}]
+    invalidatesOn: []
+    terminals: [pass]
+  - id: build/v1
+    owner: implementation
+    checks: [{id: runtime-and-integration, evidenceKind: command}]
+    invalidatesOn: [source]
+    terminals: [pass, inapplicable]
+    inapplicableReasonCodes: [build.no-runnable-source]
+""", encoding="utf-8")
+    assert main(["finalize", *_args(doc, profile, adapter), "--gate", "build/v1",
+                 "--id", "build.bundle", "--status", "inapplicable",
+                 "--reason-code", "build.no-runnable-source"]) == 2
+    assert "build.bundle" not in doc.read_text(encoding="utf-8")
+
+
+def test_finalize_rejects_tampered_current_evidence(core):
+    doc, profile, adapter = core
+    assert main(["record", *_args(doc, profile, adapter), "--gate", "build/v1",
+                 "--check", "runtime-and-integration", "--id", "build.check"]) == 0
+    (doc.parent / "artifacts" / "build.check.jsonl").write_text("tampered\n", encoding="utf-8")
+    assert main(["finalize", *_args(doc, profile, adapter), "--gate", "build/v1",
+                 "--id", "build.bundle"]) == 2
+    assert "build.bundle" not in doc.read_text(encoding="utf-8")
+
+
+def test_finalize_rejects_terminal_gate(core):
+    doc, profile, adapter = core
+    assert main(["record", *_args(doc, profile, adapter), "--gate", "build/v1",
+                 "--check", "runtime-and-integration", "--id", "build.check"]) == 0
+    assert main(["finalize", *_args(doc, profile, adapter), "--gate", "build/v1",
+                 "--id", "build.bundle"]) == 0
+    assert main(["finalize", *_args(doc, profile, adapter), "--gate", "build/v1",
+                 "--id", "build.second"]) == 2
+
+
+def test_finalize_replaces_stale_terminal_gate(core):
+    doc, profile, adapter = core
+    assert main(["record", *_args(doc, profile, adapter), "--gate", "build/v1",
+                 "--check", "runtime-and-integration", "--id", "build.before"]) == 0
+    assert main(["finalize", *_args(doc, profile, adapter), "--gate", "build/v1",
+                 "--id", "build.before.bundle"]) == 0
+    (doc.parent / "src" / "app.py").write_text("print('fixed')\n", encoding="utf-8")
+    assert main(["record", *_args(doc, profile, adapter), "--gate", "build/v1",
+                 "--check", "runtime-and-integration", "--id", "build.after"]) == 0
+    assert main(["finalize", *_args(doc, profile, adapter), "--gate", "build/v1",
+                 "--id", "build.after.bundle"]) == 0
+    assert validate(load_document(doc), load_profile(profile),
+                    adapters=[load_adapter(adapter)], workspace_root=doc.parent) == []
+
+
+def test_command_outcome_rejects_boolean_exit_code():
+    assert not command_outcome_ok(Check("c", "command", "success"), {"type": "command_run", "exitCode": False})

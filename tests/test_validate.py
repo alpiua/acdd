@@ -7,6 +7,7 @@ from pathlib import Path
 from acdd._doc import sha256
 from acdd.adapter import load_adapter
 from acdd.cli import main
+from acdd.fingerprint import fingerprint_for_gate
 from acdd.model import (
     Check,
     Document,
@@ -15,7 +16,6 @@ from acdd.model import (
     load_document,
     load_profile,
 )
-from acdd.fingerprint import fingerprint_for_gate
 from acdd.validate import validate
 
 
@@ -85,11 +85,14 @@ def _terminal_document(tmp_path: Path, *, kind: str, status: str, reason: str | 
     if kind == "review":
         record.update({"verdict": "pass",
                        "authorSessionUuid": "00000000-0000-4000-8000-000000000001",
-                       "reviewerSessionUuid": "00000000-0000-4000-8000-000000000001",
+                       "reviewerSessionUuid": "00000000-0000-4000-8000-000000000002",
+                       "reviewedSessionUuids": ["00000000-0000-4000-8000-000000000002"],
                        "scope": ["src/"], "performedChecks": []})
     else:
         record["exitCode"] = 0
-    path.write_text(json.dumps(record) + "\n", encoding="utf-8")
+    records = ([{"type": "review_raw", "reviewerSessionUuid": "00000000-0000-4000-8000-000000000002",
+                 "raw": '{"findings": []}'}] if kind == "review" else []) + [record]
+    path.write_text("\n".join(json.dumps(item) for item in records) + "\n", encoding="utf-8")
     document = Document(title="T", inputs=[], evidence=[], receipts=[], subtasks=[],
                         path=tmp_path / "task.md")
     fingerprint = fingerprint_for_gate(document, gate, tmp_path, None)

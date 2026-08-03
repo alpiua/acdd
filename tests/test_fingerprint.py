@@ -53,3 +53,14 @@ def test_fingerprint_missing_file_marker(ws):
     inputs = [{"type": "source", "path": "src/missing.py"}]
     fp = fingerprint_gate(ws, inputs, types=["source"])
     assert fp.sha256.startswith("sha256:")
+
+
+def test_directory_entries_have_unambiguous_encoding(tmp_path):
+    source = tmp_path / "src"
+    source.mkdir()
+    (source / "a").write_bytes(b"bPAYLOAD")
+    inputs = [{"type": "source", "path": "src"}]
+    first = fingerprint_gate(tmp_path, inputs, types=["source"]).sha256
+    (source / "a").rename(source / "ab")
+    (source / "ab").write_bytes(b"PAYLOAD")
+    assert fingerprint_gate(tmp_path, inputs, types=["source"]).sha256 != first

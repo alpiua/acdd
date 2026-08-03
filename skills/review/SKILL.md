@@ -7,22 +7,41 @@ description: Run the independent review/v1 ACDD gate.
 
 ## Load
 
-Read the settled tree, profile, and review adapter. Load only the current check
-section, then append its `promptAppend` fragment if present.
+Read the profile, review adapter, and the settled review input. For
+`acdd/task/v1`, that is the Build tree and Contract. For `acdd/plan/v1`, it is
+the planning set after Decompose. Load only this check section, then append the
+bound `promptAppend` fragment.
 
 ## independent-review
 
-Read the profile's `reviewDimensions` for this gate. Run the bound launcher
-template (`argv` with `{document}`, `{evidenceId}`, `{reviewerSessionUuid}`,
-`{prompt}` placeholders) for each independent read-only session. Append every
-session's records to one JSONL transcript. Parallel reviewers may run in
-parallel; the transcript's final record must be a terminal `review_terminal`
-with a non-empty `scope`, a `performedChecks` list that includes every declared
-dimension, `verdict: pass`, and distinct valid `authorSessionUuid` /
-`reviewerSessionUuid` that match the `acdd review` CLI flags. Zero findings may
-pass when the reviewed scope and checks are complete.
+The review adapter binding is a **launch template** for the external review
+host. Expand its placeholders, run the host, and preserve every raw response in
+JSONL. ACDD does not select models or remediate findings; when the host is done,
+register the transcript with `acdd review`.
+
+Give independent reviewers the settled input and the profile's dimensions. They
+may work in parallel. One collector writes each completed response before
+interpreting it. Give the settled input, required dimensions, and all raw
+responses to one confirmation reviewer for the final pass terminal.
+
+## Transcript
+
+Every preterminal line is exactly:
+
+    {"type":"review_raw","reviewerSessionUuid":"UUID","raw":"verbatim response"}
+
+The confirmation reviewer returns the final `review_terminal` declaration. A
+pass terminal has `verdict: pass`, distinct author/reviewer UUIDs, non-empty
+`scope`, `performedChecks` covering every profile dimension, and
+`reviewedSessionUuids` listing every raw session exactly once.
+
+## Findings and recheck
+
+If confirmation finds an issue, keep the transcript and mark Review
+`partial`/`blocked`. Remediation belongs to the review host / diagnose loop —
+not to ACDD core. After fixes that change Build inputs, return through Build,
+then recheck with a new transcript id.
 
 ## Evidence
 
-Register actual artifacts; do not fabricate a transcript. Finalize only after
-the check artifact is current.
+Register the finished transcript with `acdd review`. Finalize only when current.

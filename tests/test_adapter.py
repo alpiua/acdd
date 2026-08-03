@@ -12,9 +12,9 @@ def test_task_profile_is_five_gates_and_eight_checks():
     root = Path(__file__).resolve().parents[1]
     profile = load_profile(root / "profiles" / "task" / "v1.yaml")
     assert [gate.id for gate in profile.gates] == ["design/v1", "contract/v1", "build/v1", "review/v1", "handoff/v1"]
-    assert sum(len(gate.checks) for gate in profile.gates) == 8
+    assert sum(len(gate.checks) for gate in profile.gates) == 9
     assert [check.id for check in profile.gates[2].checks] == ["runtime-and-integration"]
-    assert profile.gates[3].review_dimensions == ("parity", "security")
+    assert profile.gates[3].review_dimensions == ("parity", "security", "code")
 
 
 def test_adapter_requires_per_check_bindings(tmp_path: Path):

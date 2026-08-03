@@ -1,0 +1,6 @@
+Metadata-Version: 2.4
+Name: acdd
+Version: 0.3.0
+Summary: ACDD — Architecture Contract-Driven Development
+Requires-Python: >=3.11
+Requires-Dist: PyYAML>=6.0
