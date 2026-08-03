@@ -17,7 +17,7 @@ from .validate import validate
 MAX_OUTPUT = 4096
 _EVIDENCE_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
 _SECRET = re.compile(r"(?i)(api[_-]?key|secret|password|token)\s*[=:]\s*[^\s]+|Bearer\s+\S+")
-_KIND_REF = {"command": "commandReceipt", "basis": "basisRef", "report": "processReportRef"}
+_KIND_REF = {"command": "commandReceipt", "basis": "basisRef"}
 def _command_record(*, argv: tuple[str, ...], cwd: Path, evidence_id: str, gate_id: str,
                     check_id: str, timeout_seconds: int = 300) -> dict:
     started = time.monotonic(); timed_out, exec_error, exit_code = False, False, 0
@@ -45,42 +45,9 @@ def _reject_duplicate_check(document: Document, gate: Gate, check_id: str, finge
            and item.get("inputFingerprint") == fingerprint for item in document.evidence):
         raise AcddError(f"evidence for {gate.id}.{check_id} already recorded at the current fingerprint")
 
-def record_process_report(*, document: Document, profile: Profile, workspace_root: Path, gate: Gate,
-                          check_id: str, evidence_id: str, adapter: Adapter) -> dict:
-    _require_fresh_id(document, evidence_id)
-    if adapter.role != gate.owner:
-        raise AcddError(f"adapter role {adapter.role!r} does not own {gate.id}")
-    check = _find_check(gate, check_id)
-    if check.evidence_kind != "report":
-        raise AcddError("process-report requires evidenceKind report")
-    binding = adapter.gates.get(gate.id)
-    if binding is None or check_id not in binding.checks:
-        raise AcddError(f"adapter lacks binding for {gate.id}.{check_id}")
-    fingerprint = fingerprint_for_gate(document, gate, workspace_root, adapter)
-    _reject_duplicate_check(document, gate, check_id, fingerprint)
-    artifact_dir = _artifact_dir(workspace_root, adapter)
-    artifact_path = artifact_dir / f"{evidence_id}.json"
-    if artifact_path.exists():
-        artifact_path.unlink()
-    report = build_process_report(document, profile, workspace_root=workspace_root)
-    write_process_report(artifact_path, report)
-    payload = {
-        "kind": "report",
-        "id": evidence_id,
-        "gate": gate.id,
-        "check": check_id,
-        "issuerRole": adapter.role,
-        "artifactSha256": _doc.sha256(artifact_path),
-        "inputFingerprint": fingerprint,
-        "recordedAt": _doc.utc_now(),
-        "processReportRef": _doc.relative_ref(workspace_root, artifact_path),
-    }
-    _doc.append_evidence(document.path, payload)
-    return payload
-
 def record_check(*, document: Document, workspace_root: Path, gate: Gate, check_id: str,
                  evidence_id: str, adapter: Adapter, classified_refs: list[dict] | None = None,
-                 profile: Profile | None = None) -> tuple[dict | None, bool]:
+                 ) -> tuple[dict | None, bool]:
     _require_fresh_id(document, evidence_id)
     if adapter.role != gate.owner:
         raise AcddError(f"adapter role {adapter.role!r} does not own {gate.id}")
@@ -90,13 +57,6 @@ def record_check(*, document: Document, workspace_root: Path, gate: Gate, check_
         raise AcddError(f"adapter lacks binding for {gate.id}.{check_id}")
     if check.evidence_kind == "review":
         raise AcddError("review evidence must be registered with acdd review")
-    if check.evidence_kind == "report":
-        if profile is None:
-            raise AcddError("process-report recording requires the active profile")
-        return record_process_report(
-            document=document, profile=profile, workspace_root=workspace_root,
-            gate=gate, check_id=check_id, evidence_id=evidence_id, adapter=adapter,
-        ), True
     fingerprint = fingerprint_for_gate(document, gate, workspace_root, adapter)
     _reject_duplicate_check(document, gate, check_id, fingerprint)
     basis_scope: list[str] = []
@@ -247,6 +207,21 @@ def finalize_gate(*, document: Document, profile: Profile, adapters: list[Adapte
     payload = {"kind": "bundle", "id": evidence_id, "gate": gate.id, "issuerRole": adapter.role, "checkEvidence": member_ids, "inputFingerprint": fingerprint, "recordedAt": _doc.utc_now()}
     if gate.id == "contract/v1" and status == PASS:
         payload["subtaskContractBundleRef"] = _write_subtask_bundle(document, workspace_root, adapter, evidence_id, fingerprint)
+    if gate.id == "handoff/v1" and status == PASS:
+        report_path = _artifact_dir(workspace_root, adapter) / f"{evidence_id}.process-report.json"
+        if report_path.exists():
+            report_path.unlink()
+        pending = {
+            "gate": gate.id,
+            "status": status,
+            "fingerprint": fingerprint,
+            "evidence": f"bundle={evidence_id}",
+        }
+        report = build_process_report(
+            document, profile, workspace_root=workspace_root, pending_receipt=pending,
+        )
+        write_process_report(report_path, report)
+        payload["processReportRef"] = _doc.relative_ref(workspace_root, report_path)
     if reason_code:
         payload["reasonCode"] = reason_code
     _doc.append_evidence(document.path, payload)

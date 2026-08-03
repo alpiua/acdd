@@ -24,8 +24,8 @@ from .model import (
     Profile,
 )
 
-EVIDENCE_KINDS = {"command", "basis", "review", "report", "bundle"}
-_ARTIFACT_FIELD = {"command": "commandReceipt", "basis": "basisRef", "review": "transcriptRef", "report": "processReportRef"}
+EVIDENCE_KINDS = {"command", "basis", "review", "bundle"}
+_ARTIFACT_FIELD = {"command": "commandReceipt", "basis": "basisRef", "review": "transcriptRef"}
 def _safe_artifact(workspace_root: Path, relative: object) -> Path | None:
     if not isinstance(relative, str) or not relative:
         return None
@@ -79,6 +79,20 @@ def _independent_review(evidence: dict, terminal: dict | None) -> bool:
     if not distinct or evidence.get("verdict") != PASS:
         return False
     return terminal is None or (terminal.get("type") == "review_terminal" and terminal.get("verdict") == PASS and str(terminal.get("authorSessionUuid")) == str(author) and str(terminal.get("reviewerSessionUuid")) == str(reviewer))
+
+
+def _validate_process_report(workspace: Path, bundle: dict, err: Callable[[int, str], None]) -> None:
+    artifact = _safe_artifact(workspace, bundle.get("processReportRef"))
+    if artifact is None or not artifact.is_file():
+        err(2, "invariant 2 (real): handoff process report missing")
+        return
+    try:
+        report = json.loads(artifact.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        err(2, "invariant 2 (real): handoff process report malformed")
+        return
+    if report.get("type") != "acdd_process_report" or report.get("format") != "acdd/process-report/1":
+        err(2, "invariant 2 (real): handoff process report schema invalid")
 
 def _source_contracts(workspace: Path, bundle: dict | None, err: Callable[[int, str], None]) -> dict[str, dict]:
     artifact = _safe_artifact(workspace, bundle.get("subtaskContractBundleRef") if bundle else None)
@@ -177,33 +191,23 @@ def validate(doc: Document, profile: Profile, *, adapters: list[Adapter] | None 
             err(2, f"invariant 2 (real): checksum invalid or duplicate for {evidence_id!r}")
         seen_sha.add(declared_sha)
         gate_id, check_id = evidence.get("gate"), evidence.get("check")
-        if kind == "report":
-            try:
-                report = json.loads(artifact.read_text(encoding="utf-8"))
-            except (OSError, json.JSONDecodeError):
-                err(2, f"invariant 2 (real): process report missing or malformed for {evidence_id!r}")
-            else:
-                if report.get("type") != "acdd_process_report" or report.get("format") != "acdd/process-report/1":
-                    err(2, f"invariant 2 (real): process report schema invalid for {evidence_id!r}")
-                terminals_by_id[evidence_id] = report
-        else:
-            records = _doc.read_jsonl(artifact)
-            terminal = records[-1] if records else None
-            terminals_by_id[evidence_id] = terminal
-            if not _doc.terminal_matches(terminal, evidence_id, gate_id, check_id):
-                err(2, f"invariant 2 (real): terminal record invalid for {evidence_id!r}")
-            elif kind in {"command", "basis"}:
-                if len(records) != 1:
-                    err(2, f"invariant 2 (real): artifact for {evidence_id!r} must hold exactly one record")
-                elif check is not None and not _doc.command_outcome_ok(check, terminal):
-                    err(9, f"invariant 9 (execution): command outcome invalid for {evidence_id!r}")
-            elif kind == "review":
-                if not isinstance(terminal, dict) or terminal.get("type") != "review_terminal" or terminal.get("verdict") != PASS:
-                    err(2, f"invariant 2 (real): review terminal invalid for {evidence_id!r}")
-                elif gate is not None and not _doc.review_scope_ok(gate.review_dimensions, terminal, records):
-                    err(11, f"invariant 11 (complete): review transcript incomplete for {evidence_id!r}")
-                elif not _independent_review(evidence, terminal):
-                    err(7, f"invariant 7 (review): invalid independent review for {evidence_id!r}")
+        records = _doc.read_jsonl(artifact)
+        terminal = records[-1] if records else None
+        terminals_by_id[evidence_id] = terminal
+        if not _doc.terminal_matches(terminal, evidence_id, gate_id, check_id):
+            err(2, f"invariant 2 (real): terminal record invalid for {evidence_id!r}")
+        elif kind in {"command", "basis"}:
+            if len(records) != 1:
+                err(2, f"invariant 2 (real): artifact for {evidence_id!r} must hold exactly one record")
+            elif check is not None and not _doc.command_outcome_ok(check, terminal):
+                err(9, f"invariant 9 (execution): command outcome invalid for {evidence_id!r}")
+        elif kind == "review":
+            if not isinstance(terminal, dict) or terminal.get("type") != "review_terminal" or terminal.get("verdict") != PASS:
+                err(2, f"invariant 2 (real): review terminal invalid for {evidence_id!r}")
+            elif gate is not None and not _doc.review_scope_ok(gate.review_dimensions, terminal, records):
+                err(11, f"invariant 11 (complete): review transcript incomplete for {evidence_id!r}")
+            elif not _independent_review(evidence, terminal):
+                err(7, f"invariant 7 (review): invalid independent review for {evidence_id!r}")
         if kind == "basis" and gate is not None:
             expected = sorted(entry["path"] for entry in doc.inputs if entry.get("type") in gate.invalidates_on)
             classified = {item.get("path") for item in evidence.get("classifiedRefs") or [] if isinstance(item, dict)}
@@ -267,6 +271,8 @@ def validate(doc: Document, profile: Profile, *, adapters: list[Adapter] | None 
                 err(3, f"invariant 3 (bind): check/bundle mismatch in {gate.id}")
             if check.evidence_kind == "review" and not _independent_review(child, terminals_by_id.get(child["id"])):
                 err(7, f"invariant 7 (review): invalid independent review in {gate.id}")
+        if gate.id == "handoff/v1" and receipt["status"] == PASS:
+            _validate_process_report(workspace, bundle, err)
     input_paths = tuple(entry.get("path") for entry in doc.inputs
                         if isinstance(entry, dict) and isinstance(entry.get("path"), str))
     task_ids = {task.id for task in doc.subtasks}

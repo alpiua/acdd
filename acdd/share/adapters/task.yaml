@@ -15,4 +15,3 @@ gates:
   handoff/v1:
     checks:
       repository-handoff: {cwd: ., argv: [python3, scripts/handoff_check.py, "{document}", profiles/task/v1.yaml]}
-      process-report: {cwd: ., argv: [/bin/true]}

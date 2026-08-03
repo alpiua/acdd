@@ -11,6 +11,7 @@ from ._doc import resolve_under
 from .adapter import Adapter, AdapterError, index_adapters, load_adapter
 from .discover import discover_adapter_paths
 from .model import AcddError, load_document, load_profile
+from .paths import resolve_profile
 from .record import finalize_gate, record_check, record_review, record_subtask_contract
 from .validate import validate
 
@@ -97,7 +98,7 @@ def _gate(profile, gate_id):
             return gate
     raise AcddError(f"unknown gate {gate_id!r}")
 def _context(args):
-    profile = load_profile(Path(args.profile).resolve())
+    profile = load_profile(resolve_profile(args.profile))
     document = load_document(Path(args.document).resolve())
     workspace = Path(args.workspace_root).resolve()
     adapters = _adapters(
@@ -132,8 +133,7 @@ def cmd_record(args) -> int:
                        if "=" in item or (_ for _ in ()).throw(AcddError("classified-ref must be path=role"))]
     payload, succeeded = record_check(document=document, workspace_root=workspace, gate=gate,
                                       check_id=args.check, evidence_id=args.evidence_id,
-                                      adapter=adapter, classified_refs=classified_refs,
-                                      profile=profile)
+                                      adapter=adapter, classified_refs=classified_refs)
     if payload:
         print(json.dumps(payload, sort_keys=True))
     return 0 if succeeded else 1

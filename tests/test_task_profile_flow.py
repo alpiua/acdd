@@ -66,7 +66,6 @@ gates:
   handoff/v1:
     checks:
       repository-handoff: {argv: [/bin/true]}
-      process-report: {argv: [/bin/true]}
 """, encoding="utf-8")
     (adapters / "implementation.yaml").write_text("""\
 apiVersion: acdd/adapter/v1
@@ -117,6 +116,9 @@ gates:
         "--reviewer-uuid", "00000000-0000-4000-8000-000000000002")
     run("finalize", "--gate", "review/v1", "--id", "review.bundle")
     run("record", "--gate", "handoff/v1", "--check", "repository-handoff", "--id", "handoff.repository")
-    run("record", "--gate", "handoff/v1", "--check", "process-report", "--id", "handoff.process")
     run("finalize", "--gate", "handoff/v1", "--id", "handoff.bundle")
+    text = document.read_text(encoding="utf-8")
+    assert "processReportRef:" in text
+    report = next(Path(tmp_path).joinpath(".acdd/artifacts").glob("*.process-report.json"))
+    assert json.loads(report.read_text(encoding="utf-8"))["format"] == "acdd/process-report/1"
     run("validate")

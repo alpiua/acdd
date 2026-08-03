@@ -35,6 +35,5 @@ gates:
     owner: task
     checks:
       - {id: repository-handoff, evidenceKind: command, commandOutcome: success}
-      - {id: process-report, evidenceKind: report, commandOutcome: success}
     invalidatesOn: [source, test, configuration, dependency]
     terminals: [pass]

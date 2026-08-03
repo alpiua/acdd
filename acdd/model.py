@@ -8,7 +8,7 @@ import yaml
 
 PENDING, PARTIAL, BLOCKED, PASS, INAPPLICABLE = "pending", "partial", "blocked", "pass", "inapplicable"
 STATUSES = {PENDING, PARTIAL, BLOCKED, PASS, INAPPLICABLE}
-EVIDENCE_KINDS = {"command", "basis", "review", "report", "bundle"}
+EVIDENCE_KINDS = {"command", "basis", "review", "bundle"}
 class AcddError(ValueError):
     def __init__(self, message: str, *, invariant: int = 0):
         super().__init__(message); self.invariant = invariant

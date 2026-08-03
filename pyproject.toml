@@ -6,14 +6,49 @@ build-backend = "setuptools.build_meta"
 name = "acdd"
 version = "0.3.0"
 description = "ACDD — Architecture Contract-Driven Development"
+readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
 requires-python = ">=3.11"
+authors = [
+  { name = "Oleksii Pylypchuk", email = "oleksii.pylypchuk@tuta.com" },
+]
+keywords = ["acdd", "architecture", "contract", "evidence", "validator"]
+classifiers = [
+  "Development Status :: 4 - Beta",
+  "Environment :: Console",
+  "Intended Audience :: Developers",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+  "Topic :: Software Development :: Quality Assurance",
+  "Typing :: Typed",
+]
 dependencies = ["PyYAML>=6.0"]
+
+[project.urls]
+Homepage = "https://github.com/alpiua/acdd"
+Repository = "https://github.com/alpiua/acdd"
+Issues = "https://github.com/alpiua/acdd/issues"
+Documentation = "https://github.com/alpiua/acdd#readme"
 
 [project.scripts]
 acdd = "acdd.cli:main"
 
-[tool.setuptools]
-packages = ["acdd"]
+[tool.setuptools.packages.find]
+include = ["acdd", "acdd.*"]
+
+[tool.setuptools.package-data]
+"acdd.share" = [
+  "AGENTS.md",
+  "DESIGN.md",
+  "profiles/**/*.yaml",
+  "skills/**/*.md",
+  "adapters/**/*.yaml",
+  "examples/**/*.md",
+]
 
 [dependency-groups]
-dev = ["pytest>=8"]
+dev = ["pytest>=8", "build>=1.2"]
+
