@@ -9,10 +9,24 @@ from pathlib import Path
 
 from . import _doc
 from .adapter import Adapter, index_adapters
+from .authority import (
+    active_subtasks,
+    assert_changed_paths_allowed,
+    assert_precontract_clean,
+    authority_digest,
+    classify_contract_change,
+    consume_reopen_writes_snapshot,
+    gate_requires_authority_verify,
+    matching_authority_verify,
+    resolve_build_changed_paths,
+    write_reopen_writes_snapshot,
+    write_union,
+)
 from .fingerprint import fingerprint_for_gate, subtask_contract_part
 from .model import (
     INAPPLICABLE,
     PASS,
+    PENDING,
     AcddError,
     Check,
     Document,
@@ -87,13 +101,20 @@ def _require_fresh_id(document: Document, evidence_id: str) -> None:
 def _reject_duplicate_check(
     document: Document, gate: Gate, check_id: str, fingerprint: str
 ) -> None:
-    if any(
-        item.get("gate") == gate.id
-        and item.get("check") == check_id
-        and item.get("kind") != "bundle"
-        and item.get("inputFingerprint") == fingerprint
-        for item in document.evidence
-    ):
+    for item in document.evidence:
+        if (
+            item.get("gate") != gate.id
+            or item.get("check") != check_id
+            or item.get("kind") == "bundle"
+            or item.get("inputFingerprint") != fingerprint
+        ):
+            continue
+        if (
+            gate.id == "contract/v1"
+            and item.get("kind") == "review"
+            and item.get("authorityDigest") != authority_digest(document.subtasks)
+        ):
+            continue
         raise AcddError(
             f"evidence for {gate.id}.{check_id} already recorded at the current fingerprint"
         )
@@ -109,6 +130,7 @@ def record_check(
     adapter: Adapter,
     classified_refs: list[dict] | None = None,
     adapters: list[Adapter] | dict[str, Adapter] | None = None,
+    changed_paths: list[str] | None = None,
 ) -> tuple[dict | None, bool]:
     _require_fresh_id(document, evidence_id)
     check = _find_check(gate, check_id)
@@ -120,6 +142,20 @@ def record_check(
         raise AcddError(f"adapter lacks binding for {gate.id}.{check_id}")
     if check.evidence_kind == "review":
         raise AcddError("review evidence must be registered with acdd review")
+    assert_precontract_clean(
+        document_path=document.path,
+        inputs=document.inputs,
+        receipts=document.receipts,
+        workspace=workspace_root,
+    )
+    writes = [path for task in active_subtasks(document.subtasks) for path in task.writes]
+    if gate.id == "build/v1":
+        assert_changed_paths_allowed(
+            resolve_build_changed_paths(workspace_root, changed_paths, inputs=document.inputs),
+            allowed_writes=writes,
+        )
+    elif changed_paths is not None:
+        assert_changed_paths_allowed(changed_paths, allowed_writes=writes)
     fingerprint = fingerprint_for_gate(
         document, gate, workspace_root, adapters if adapters is not None else adapter
     )
@@ -198,6 +234,12 @@ def record_review(
     if gate.id not in adapter.gates or check_id not in adapter.gates[gate.id].checks:
         raise AcddError("review adapter lacks the required check binding")
     _require_fresh_id(document, evidence_id)
+    assert_precontract_clean(
+        document_path=document.path,
+        inputs=document.inputs,
+        receipts=document.receipts,
+        workspace=workspace_root,
+    )
     fingerprint = fingerprint_for_gate(
         document, gate, workspace_root, adapters if adapters is not None else adapter
     )
@@ -243,6 +285,8 @@ def record_review(
         "reviewerSessionUuid": reviewer_uuid,
         "verdict": verdict,
     }
+    if gate.id == "contract/v1":
+        payload["authorityDigest"] = authority_digest(document.subtasks)
     _doc.append_evidence(document.path, payload)
     return payload
 
@@ -331,21 +375,35 @@ def record_subtask_contract(
     subtask = next((item for item in document.subtasks if item.id == subtask_id), None)
     if subtask is None:
         raise AcddError(f"unknown subtask {subtask_id!r}")
-    missing = f"invariant 6 (bounded): subtask {subtask_id!r} has no source contract"
-    errors = [
-        error
-        for error in validate(
-            document, profile, adapters=adapters or [adapter], workspace_root=workspace_root
-        )
-        if str(error) != missing
-    ]
-    if errors:
-        raise AcddError(f"cannot contract invalid subtask: {errors[0]}")
     bundle = _contract_bundle(document, receipt)
     artifact = _safe_source_bundle(workspace_root, bundle)
     records = _doc.read_jsonl(artifact) if artifact else None
     if records is None:
         raise AcddError("passed contract receipt lacks a valid source bundle")
+    contracted_ids = {
+        item["subtask"]
+        for item in records
+        if item.get("type") == "subtask_contract" and isinstance(item.get("subtask"), str)
+    }
+    contracted_active = tuple(
+        task for task in active_subtasks(document.subtasks) if task.id in contracted_ids
+    )
+    if classify_contract_change(subtask, contracted_active=contracted_active) == "material":
+        raise AcddError(
+            "material contract change requires `acdd reopen --gate contract/v1` "
+            "then re-verify and finalize (supersede, overlapping writes, or repair/fix id)"
+        )
+    missing = f"invariant 6 (bounded): subtask {subtask_id!r} has no source contract"
+    authority_gap = "invariant 4 (state): contract authority digest lacks matching contract-verify"
+    errors = [
+        error
+        for error in validate(
+            document, profile, adapters=adapters or [adapter], workspace_root=workspace_root
+        )
+        if str(error) not in {missing, authority_gap}
+    ]
+    if errors:
+        raise AcddError(f"cannot contract invalid subtask: {errors[0]}")
     if not _EVIDENCE_ID.fullmatch(evidence_id) or any(
         item.get("id") == evidence_id for item in records
     ):
@@ -353,11 +411,29 @@ def record_subtask_contract(
     if any(item.get("subtask") == subtask.id for item in records):
         raise AcddError(f"subtask {subtask.id!r} already has a source contract")
     part = subtask_contract_part(subtask, evidence_id, str(receipt.get("fingerprint", "")))
+    assert artifact is not None
     with artifact.open("a", encoding="utf-8") as handle:
         handle.writelines(
             json.dumps(record, sort_keys=True) + "\n" for record in _subtask_contract_records(part)
         )
     return part
+
+
+def reopen_gate(*, document: Document, gate: Gate, workspace_root: Path) -> None:
+    """Clear a terminal receipt so material contract changes can re-enter verify/finalize."""
+    receipt = next((item for item in document.receipts if item.get("gate") == gate.id), None)
+    if receipt is None or receipt.get("status") != PASS:
+        raise AcddError(f"reopen requires a passed receipt for {gate.id}")
+    if gate.id == "contract/v1":
+        write_reopen_writes_snapshot(workspace_root, document.subtasks)
+    _doc.upsert_receipt(
+        doc_path=document.path,
+        gate_id=gate.id,
+        status=PENDING,
+        evidence_ref=PENDING,
+        fingerprint=PENDING,
+        recorded_at=PENDING,
+    )
 
 
 def _require_finalizable(
@@ -411,15 +487,28 @@ def finalize_gate(
     adapter: Adapter,
     status: str = "pass",
     reason_code: str | None = None,
+    allow_scope_reduction: bool = False,
 ) -> dict:
     _require_finalizable(document, profile, adapters, workspace_root, gate)
     if adapter.role != gate.owner:
         raise AcddError(f"adapter role {adapter.role!r} does not own {gate.id}")
+    assert_precontract_clean(
+        document_path=document.path,
+        inputs=document.inputs,
+        receipts=document.receipts,
+        workspace=workspace_root,
+    )
     adapters_by_role = index_adapters(adapters)
     _ensure_gate_check_bindings(gate, adapters_by_role)
     if status not in gate.terminals:
         raise AcddError(f"status {status!r} is not terminal for {gate.id}")
     _require_fresh_id(document, evidence_id)
+    if gate.id == "contract/v1" and status == PASS:
+        consume_reopen_writes_snapshot(
+            workspace_root,
+            write_union(active_subtasks(document.subtasks)),
+            allow_scope_reduction=allow_scope_reduction,
+        )
     fingerprint = fingerprint_for_gate(document, gate, workspace_root, adapters_by_role)
     members = [
         item
@@ -444,6 +533,15 @@ def finalize_gate(
                 f"cannot finalize {gate.id}: exactly one successful evidence per check is required"
             )
         member_ids = [by_check[check.id]["id"] for check in gate.checks]
+        if gate.id == "contract/v1" and gate_requires_authority_verify(gate):
+            digest = authority_digest(document.subtasks)
+            if not matching_authority_verify(
+                digest=digest, evidence=list(by_check.values()), gate=gate
+            ):
+                raise AcddError(
+                    "invariant 4 (state): contract authority digest lacks matching contract-verify",
+                    invariant=4,
+                )
     payload = {
         "kind": "bundle",
         "id": evidence_id,

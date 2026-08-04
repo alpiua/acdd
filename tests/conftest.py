@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import subprocess
 import sys
 from pathlib import Path
 
@@ -9,6 +10,24 @@ import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
+
+
+def init_git_workspace(root: Path) -> None:
+    subprocess.run(["git", "init"], cwd=root, check=True, capture_output=True)
+    subprocess.run(
+        ["git", "config", "user.email", "acdd-test@example.com"],
+        cwd=root,
+        check=True,
+        capture_output=True,
+    )
+    subprocess.run(
+        ["git", "config", "user.name", "acdd-test"],
+        cwd=root,
+        check=True,
+        capture_output=True,
+    )
+    subprocess.run(["git", "add", "-A"], cwd=root, check=True, capture_output=True)
+    subprocess.run(["git", "commit", "-m", "init"], cwd=root, check=True, capture_output=True)
 
 
 @pytest.fixture
@@ -59,7 +78,11 @@ planning_profile: test/v1
 ---
 ## Plan
 ```yaml
-subtasks: []
+subtasks:
+  - id: change
+    writes: [src/app.py]
+    reads: []
+    acceptance: app behavior
 ```
 ## Inputs
 ```yaml
@@ -75,4 +98,5 @@ paths:
 """,
         encoding="utf-8",
     )
+    init_git_workspace(tmp_path)
     return tmp_path / "task.md", tmp_path / "profile.yaml", tmp_path / "adapter.yaml"

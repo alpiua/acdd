@@ -15,14 +15,14 @@ append its `promptAppend` fragment if present.
 
 The frozen Contract gives every subtask its behavior, acceptance, and forbidden
 effects. Its separately hashed source-contract part and matching binding are
-immutable during Build; both live in one append-only bundle. Add newly
-discovered work as a new subtask and register its part-and-binding pair before
-testing it. An addition uses
-`dependsOn`: complete the predecessor's Red → Green before starting the new
-subtask's Red test. A replacement uses `supersedes` and leaves the predecessor
-part untouched. Build expresses each subtask's scope in a focused functional
-test at the canonical behavior boundary; a test for one subtask cannot prove
-another subtask's acceptance.
+immutable during Build; both live in one append-only bundle. Register new work
+before testing it: additive non-overlapping slices via `contract-subtask` (+
+re-verify); material `supersedes` / overlapping writes / `*repair*` ids via
+`reopen` + Contract re-finalize (see Contract skill). Build expresses each
+subtask's scope in a focused functional test at the canonical behavior
+boundary; a test for one subtask cannot prove another subtask's acceptance.
+`acdd record` on Build requires `--changed` and/or a git worktree; dirty
+Input paths outside active subtask writes fail.
 
 **Subagents (preferred):** After `contract/v1` finalize, follow the
 `contract-verify` Delivery command. Launch **one separate subagent per

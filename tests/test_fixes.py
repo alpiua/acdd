@@ -230,9 +230,7 @@ def test_validator_rejects_unhashable_bundle_member(tmp_path: Path):
         }
     ]
 
-    errors = validate(
-        document, Profile("t", [gate]), adapters=[adapter], workspace_root=tmp_path
-    )
+    errors = validate(document, Profile("t", [gate]), adapters=[adapter], workspace_root=tmp_path)
     assert any(error.invariant == 2 and "invalid bundle members" in str(error) for error in errors)
 
 

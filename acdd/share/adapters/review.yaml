@@ -8,6 +8,8 @@ gates:
       # Review host launch template; core fingerprints it. Register the finished
       # transcript with `acdd review`. Placeholders: {document}, {evidenceId},
       # {reviewerSessionUuid}, {prompt}.
+      # Run inside one owning git repo for the settled Build/plan tree.
+      # Not contract-verify: do not span separate Planner + implementation roots.
       independent-review:
         argv:
           - node

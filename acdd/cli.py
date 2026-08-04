@@ -12,7 +12,13 @@ from .adapter import Adapter, AdapterError, index_adapters, load_adapter
 from .discover import discover_adapter_paths
 from .model import AcddError, check_owner, load_document, load_profile
 from .paths import resolve_profile
-from .record import finalize_gate, record_check, record_review, record_subtask_contract
+from .record import (
+    finalize_gate,
+    record_check,
+    record_review,
+    record_subtask_contract,
+    reopen_gate,
+)
 from .validate import validate
 
 
@@ -26,7 +32,7 @@ def _req(parser: argparse.ArgumentParser, *flags: str) -> None:
 
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        prog="acdd", description="ACDD v2 — 5 gates, checks per profile, 11 invariants"
+        prog="acdd", description="ACDD — 5 gates, checks per profile, authority-bound contracts"
     )
     commands = parser.add_subparsers(dest="command", required=True)
     common = argparse.ArgumentParser(add_help=False)
@@ -45,15 +51,29 @@ def _parser() -> argparse.ArgumentParser:
         default=[],
         help="path=role; required for basis evidence",
     )
+    record.add_argument(
+        "--changed",
+        action="append",
+        default=[],
+        dest="changed_paths",
+        help="changed path under active subtask writes (repeatable; required for Build without git)",
+    )
     finalize = commands.add_parser("finalize", parents=[common])
     _req(finalize, "--gate", "--id")
     finalize.add_argument("--status", default="pass")
     finalize.add_argument("--reason-code")
+    finalize.add_argument(
+        "--allow-scope-reduction",
+        action="store_true",
+        help="allow contract reopen to drop prior writes after an explicit product decision",
+    )
     review = commands.add_parser("review", parents=[common])
     _req(review, "--gate", "--check", "--id", "--transcript", "--author-uuid", "--reviewer-uuid")
     review.add_argument("--verdict", default="pass")
     subtask_contract = commands.add_parser("contract-subtask", parents=[common])
     _req(subtask_contract, "--subtask", "--id")
+    reopen = commands.add_parser("reopen", parents=[common])
+    _req(reopen, "--gate")
     return parser
 
 
@@ -171,7 +191,7 @@ def cmd_fingerprint(args) -> int:
 
 
 def cmd_record(args) -> int:
-    document, profile, adapters, workspace, adapter_list = _context(args)
+    document, profile, adapters, workspace, _adapter_list = _context(args)
     gate = _gate(profile, args.gate)
     adapter = _check_adapter(adapters, gate, args.check)
     classified_refs = [
@@ -189,6 +209,7 @@ def cmd_record(args) -> int:
         adapter=adapter,
         classified_refs=classified_refs,
         adapters=adapters,
+        changed_paths=list(args.changed_paths) or None,
     )
     if payload:
         print(json.dumps(payload, sort_keys=True))
@@ -212,6 +233,14 @@ def cmd_contract_subtask(args) -> int:
     return 0
 
 
+def cmd_reopen(args) -> int:
+    document, profile, _, workspace, _ = _context(args)
+    gate = _gate(profile, args.gate)
+    reopen_gate(document=document, gate=gate, workspace_root=workspace)
+    print(json.dumps({"gate": gate.id, "status": "pending"}, sort_keys=True))
+    return 0
+
+
 def cmd_finalize(args) -> int:
     document, profile, owners, workspace, adapters = _context(args)
     gate = _gate(profile, args.gate)
@@ -226,6 +255,7 @@ def cmd_finalize(args) -> int:
         adapter=adapter,
         status=args.status,
         reason_code=args.reason_code,
+        allow_scope_reduction=args.allow_scope_reduction,
     )
     print(json.dumps(payload, sort_keys=True))
     return 0
@@ -257,6 +287,7 @@ _COMMANDS = {
     "fingerprint": cmd_fingerprint,
     "record": cmd_record,
     "contract-subtask": cmd_contract_subtask,
+    "reopen": cmd_reopen,
     "finalize": cmd_finalize,
     "review": cmd_review,
 }

@@ -194,7 +194,7 @@ def test_subtask_part_cannot_be_rewritten_with_a_new_self_hash(tmp_path: Path):
     )
 
 
-def test_replacement_supersedes_only_its_contracted_predecessor(tmp_path: Path):
+def test_replacement_supersedes_requires_reopen_not_silent_append(tmp_path: Path):
     document_path, profile, contract, _, adapters = _context(tmp_path)
     finalize_gate(
         document=load_document(document_path),
@@ -211,36 +211,15 @@ def test_replacement_supersedes_only_its_contracted_predecessor(tmp_path: Path):
         "  - id: replacement\n    writes: [src/app.py]\n    reads: []\n"
         "    acceptance: replacement behavior\n    supersedes: first\n",
     )
-    record_subtask_contract(
-        document=load_document(document_path),
-        profile=profile,
-        workspace_root=tmp_path,
-        adapter=adapters[0],
-        adapters=adapters,
-        subtask_id="replacement",
-        evidence_id="contract.replacement",
-    )
-    document = load_document(document_path)
-    _, parts = _source_parts(document, tmp_path)
-    contracts = {item["subtask"]: item for item in parts}
-    assert validate(document, profile, adapters=adapters, workspace_root=tmp_path) == []
-    assert contracts["first"].get("supersedes") is None
-    assert contracts["replacement"]["supersedes"] == "first"
-
-    _append(
-        document_path,
-        "  - id: another-replacement\n    writes: [src/app.py]\n    reads: []\n"
-        "    acceptance: another replacement\n    supersedes: first\n",
-    )
-    with pytest.raises(AcddError, match="multiple replacements"):
+    with pytest.raises(AcddError, match="material contract change requires"):
         record_subtask_contract(
             document=load_document(document_path),
             profile=profile,
             workspace_root=tmp_path,
             adapter=adapters[0],
             adapters=adapters,
-            subtask_id="another-replacement",
-            evidence_id="contract.another-replacement",
+            subtask_id="replacement",
+            evidence_id="contract.replacement",
         )
 
 

@@ -21,6 +21,10 @@ host. Expand its placeholders, run the host, and preserve every raw response in
 JSONL. ACDD does not select models or remediate findings; when the host is done,
 register the transcript with `acdd review`.
 
+Run the host inside **one** git repository that owns the settled Build tree
+(for ContextUnity: `contextunity/`). Do not require a single Pi scope that also
+covers `planner/` task markdown — that was already verified at `contract-verify`.
+
 Give independent reviewers the settled input and the profile's dimensions. They
 may work in parallel. One collector writes each completed response before
 interpreting it. Give the settled input, required dimensions, and all raw

@@ -54,8 +54,10 @@ Order inside the gate:
    clear order.
 2. **executable-proof** — matrix content (producers, consumers, data flow,
    authorities, backends, reads, writes) is part of this check, together with the
-   focused pre-change RED proof. Expected failure fixes the acceptance boundary;
-   tests must cover the frozen contract, not trivia.
+   focused pre-change RED proof. Declare frontmatter `executable_proof.argv` as
+   an entrypoint to a real test file (not inline `python -c` / pasted bodies).
+   Expected failure fixes the acceptance boundary; tests must cover the frozen
+   contract, not trivia.
 3. **contract-verify** — LLM substance check via the `contract-verify` adapter
    (completeness, chain-coverage, proof-strength, parallel-safety). Pass only
    with permission and no open corrections. On pass, the verifier states which
@@ -79,20 +81,21 @@ repeats that hash under the part ID. Changing a part and recomputing only its
 self-hash is still rejected because its existing binding no longer matches. A
 later subtask is always new work, never an edit to an old part:
 
-- **Addition** narrows or extends the work with its own paths and a dependsOn
-  link to the original. Finish the original subtask's TDD Red → Green before
-  starting the addition's Red test.
-- **Replacement** uses supersedes. The original contract remains in the record,
-  but its state is now derived as superseded by that one successor. A subtask
-  has at most one direct replacement.
+- **Addition** extends with non-overlapping writes and `dependsOn`. Register with
+  `acdd contract-subtask`. If Contract has `contract-verify`, re-verify so the
+  new **authority digest** matches before validation stays green.
+- **Replacement** uses `supersedes`, overlapping writes, or a `*repair*` /
+  `*fix*` / `*amend*` id. That is **material**: `contract-subtask` refuses it.
+  Run `acdd reopen --gate contract/v1`, amend the Plan, re-record Contract
+  (including verify), and finalize. Never shrink scope only to pass validate;
+  reopen finalize blocks dropped writes unless `--allow-scope-reduction`.
+- **Build write-set:** `acdd record` on Build requires `--changed` and/or a git
+  worktree; dirty paths must stay inside active subtask writes.
+- **Pre-contract freeze:** product Input paths must not be dirty before
+  `contract/v1` pass (tests may change for RED proof).
 
-Register either form with `acdd contract-subtask` before it joins Build. The
-command appends a separately hashed part and its binding to the same
-source-contract bundle; it never edits an earlier part, Contract evidence, or
-receipt. Source contracts are verification records, not subtask gates or
-subtask receipts. A Plan-only addition or replacement does not stale a global
-Build, Review, or Handoff receipt; changing that receipt's actual inputs still
-does.
+Source contracts are verification records, not subtask gates. A non-material
+addition does not stale Build/Review/Handoff by itself.
 
 ### 3. Build
 
@@ -266,6 +269,9 @@ uv run acdd finalize task.md task --gate build/v1 --id build.bundle
 uv run acdd contract-subtask task.md task --workspace-root . \
   --subtask newly-discovered-slice --id contract.newly-discovered-slice
 
+# Material Plan change (supersede / overlapping writes): reopen Contract first.
+uv run acdd reopen task.md task --gate contract/v1
+
 uv run acdd review task.md task \
   --gate review/v1 --check independent-review --id review.independent \
   --transcript .acdd/artifacts/review.jsonl \
@@ -304,3 +310,13 @@ Planning needs plan, contract-verify, and review. A Review or contract-verify
 binding is a host launch template; register the finished transcript with
 `acdd review`. Handoff records repository-handoff; finalize writes the process
 report onto that gate's bundle.
+
+## Local CI / pre-push
+
+Mirror of `.github/workflows/ci.yml` (test job + package build/twine):
+
+```bash
+./scripts/hooks/run-ci-gate.sh
+ln -sf ../../scripts/hooks/pre-push .git/hooks/pre-push   # once per clone
+```
+

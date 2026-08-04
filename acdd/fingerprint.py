@@ -106,9 +106,7 @@ def _binding_contract(
             or gate.id not in adapter.gates
             or check.id not in adapter.gates[gate.id].checks
         ):
-            raise ValueError(
-                f"missing adapter binding for {gate.id}.{check.id} (role {role!r})"
-            )
+            raise ValueError(f"missing adapter binding for {gate.id}.{check.id} (role {role!r})")
         binding = adapter.gates[gate.id].checks[check.id]
         bindings[check.id] = {
             **asdict(binding),

@@ -7,6 +7,11 @@ from pathlib import Path
 
 from . import _doc
 from .adapter import Adapter, index_adapters
+from .authority import (
+    authority_digest,
+    gate_requires_authority_verify,
+    matching_authority_verify,
+)
 from .fingerprint import (
     fingerprint_for_gate,
     subtask_contract_hash,
@@ -369,6 +374,16 @@ def validate(
             str(contract_receipt.get("evidence", "")).removeprefix("bundle=")
         )
         subtask_contracts = _source_contracts(workspace, bundle, err)
+        contract_gate = gates.get("contract/v1")
+        if contract_gate is not None and gate_requires_authority_verify(contract_gate):
+            digest = authority_digest(doc.subtasks)
+            if not matching_authority_verify(
+                digest=digest, evidence=doc.evidence, gate=contract_gate
+            ):
+                err(
+                    4,
+                    "invariant 4 (state): contract authority digest lacks matching contract-verify",
+                )
     for receipt in doc.receipts:
         gate = gates.get(receipt.get("gate"))
         if gate is None or receipt.get("status") not in {PASS, INAPPLICABLE}:

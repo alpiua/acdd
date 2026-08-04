@@ -9,6 +9,11 @@ description: "Use for bugs, tracebacks, test failures, regressions, or accepted 
 
 Stop implementation guessing. Gather evidence, one hypothesis per root cause, and the smallest sufficient fix.
 
+Most agent failures are **epistemic** (wrong premise / ignored available evidence),
+not missing skill. Before planning a fix, validate the assumption that would
+steer the repair against live outputs, Code Map/ast-grep, and the frozen
+contract. Do not keep repairing under an unchecked premise.
+
 ## 1. Evidence
 
 1. Read the full traceback or failure output.
@@ -49,8 +54,10 @@ Stop implementation guessing. Gather evidence, one hypothesis per root cause, an
 3. Verify affected callers, paths, backends, authority modes, and compatibility
    surfaces; scan for obsolete behavior.
 4. Run lint/type checks when touched, then the nearest owning suite.
-5. If three fix attempts fail, stop with evidence, attempts, and the current
-   hypothesis.
+5. If three fix attempts fail **or** two attempts still rest on the same
+   unvalidated premise, stop: rediagnose (fresh evidence), reopen Contract when
+   scope must change, or escalate. Do not invent pass receipts or extend a
+   thin `*-repair` to green the validator.
 
 ## Done
 

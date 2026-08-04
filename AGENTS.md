@@ -19,3 +19,9 @@ or the eleven invariants.
 Run `uv run acdd validate <document> <profile>` before and after a terminal
 gate. Use `record`, `review`, `contract-subtask`, and `finalize` only through
 the owner adapter.
+
+`contract-verify` checks contract substance (including `chain-coverage` =
+explicit matrix paths that resolve in the live tree). Give the verifier read
+access to the task document and cited code roots. `review/v1` checks the
+settled implementation tree in its owning git repo. Do not merge those into one
+Pi dirty-tree workspace across separate git roots.

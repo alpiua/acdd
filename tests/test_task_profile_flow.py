@@ -5,6 +5,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+from conftest import init_git_workspace
+
 from acdd.cli import main
 
 
@@ -111,6 +113,8 @@ gates:
 """,
         encoding="utf-8",
     )
+
+    init_git_workspace(tmp_path)
 
     def run(command: str, *args: str) -> None:
         assert (

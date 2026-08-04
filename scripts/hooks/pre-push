@@ -1,0 +1,11 @@
+#!/usr/bin/env bash
+# Pre-push hook: same checks as CI (test job + package build/twine).
+# Install: ln -sf ../../scripts/hooks/pre-push .git/hooks/pre-push
+# Or: cp scripts/hooks/pre-push .git/hooks/pre-push && chmod +x .git/hooks/pre-push
+set -euo pipefail
+
+REPO_ROOT="$(git rev-parse --show-toplevel)"
+
+# Git supplies remote name/URL as args and ref updates on stdin; discard them.
+cat >/dev/null
+exec bash "$REPO_ROOT/scripts/hooks/run-ci-gate.sh"

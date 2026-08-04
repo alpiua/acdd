@@ -120,9 +120,8 @@ def test_invariant_6_rejects_unbounded_subtask(core):
     doc, profile, adapter = core
     doc.write_text(
         doc.read_text(encoding="utf-8").replace(
-            "subtasks: []",
-            """subtasks:
-  - id: bad
+            "  - id: change\n    writes: [src/app.py]\n    reads: []\n    acceptance: app behavior",
+            """  - id: bad
     writes: [outside.py]
     reads: []
     acceptance: ''""",

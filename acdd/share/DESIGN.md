@@ -88,22 +88,34 @@ Contract receipt are never rewritten. Recomputing a part hash alone does not
 authorize a rewritten part because its existing binding still contains the old
 hash. Each part must bind the passed Contract receipt.
 
-Later work has two explicit forms. An **addition** is a new subtask with its own
-narrow paths and `dependsOn` reference to the work it extends. Its predecessor
-must finish its TDD Red → Green before the addition starts; the dependency is the
-record of that order. A **replacement** is a new subtask with
-`supersedes: predecessor`. The predecessor contract remains immutable and its
-superseded state is derived from the successor; nothing is edited or deleted.
-Each predecessor has at most one direct successor, and replacement links cannot
-cycle.
+Later work has two explicit forms.
 
-Both forms use `acdd contract-subtask` to append their own part-and-binding pair
-to the same bundle. The command rejects a duplicate part ID or subtask, and
-validation rejects malformed parts or bindings, changed hashes, changed source
-fields, missing bindings, or a replacement whose predecessor is not contracted.
-Earlier parts and the Contract receipt remain untouched. These are
-verification records, not subtask gates or subtask receipts; an addition or
-replacement does not itself stale a global Build, Review, or Handoff receipt.
+An **addition** is a new subtask with its own non-overlapping writes and a
+`dependsOn` link. Use `acdd contract-subtask` to append its part. When
+`contract/v1` has a review check (`contract-verify`), the Plan's
+**contract authority digest** must gain a matching review evidence row before
+validation stays green — silent narrowing under a stale verify is rejected.
+
+A **replacement** (`supersedes`), any new subtask whose writes overlap an
+already-contracted active slice, or a subtask whose id matches `repair` /
+`fix` / `amend` is **material**. `contract-subtask` refuses it.
+Run `acdd reopen --gate contract/v1`, put the full amended Plan in place,
+re-record Contract checks (including verify), and finalize a new bundle. Do not
+shrink writes or acceptance only to satisfy the validator. After reopen,
+finalize rejects a Plan whose active writes no longer cover the prior write
+union unless `--allow-scope-reduction` is set for an explicit product decision.
+
+`acdd record` on `build/v1` always checks the changed write-set: pass
+`--changed PATH` and/or run inside a git worktree (dirty porcelain paths). Paths
+outside the union of active subtask writes are rejected.
+
+Until `contract/v1` is pass, recording or finalizing evidence fails if product
+Inputs (`source`, `configuration`, `generated`, `dependency`, `proto`,
+`migration`) are dirty in git. Test Inputs stay allowed for RED proof.
+
+Earlier parts and a still-valid Contract receipt are never rewritten by an
+addition. These are verification records, not subtask gates or receipts; a
+non-material addition does not itself stale Build/Review/Handoff.
 
 ## Task-delivery workflow
 
@@ -126,8 +138,13 @@ subtask in each ready wave. Tests derived afterward must cover the frozen
 contract, not trivia.
 
 The expected failure of `executable-proof` establishes the functional
-acceptance boundary. Contract does not run a TDD iteration itself: Build derives
-a focused TDD test from each subtask's frozen scope and acceptance.
+acceptance boundary. Declare it as a frontmatter **entrypoint** to a real test
+path under an Input of type `test` (plus a short `expected_failure` marker).
+Do not embed `python -c`, heredocs, or full test listings in the task document.
+Contract does not run a TDD iteration itself: Build derives a focused TDD test
+from each subtask's frozen scope and acceptance. Prefer catching false premises
+(wrong owner/path/backend) during Contract — decisive Build errors usually start
+early and stay hidden until recovery is expensive.
 
 ### 3. Build
 
@@ -294,9 +311,16 @@ workspace root.
 
 A gate fingerprint binds the profile definition, adapter binding, prompt fragment,
 and the inputs selected by that gate's `invalidatesOn`. It deliberately does not
-bind the Plan. Source contracts bind subtask fields separately, including their
-replacement links. Therefore adding an additive subtask or recording a
-replacement leaves existing global receipts current. A changed source, test,
+bind the Plan. Source contracts bind subtask fields separately. Separately, the
+**contract authority digest** hashes every current (non-superseded) Plan
+subtask; when Contract includes a review check, a matching
+`authorityDigest` on review evidence is required while `contract/v1` is pass.
+
+Therefore: a non-overlapping addition may append a part without staling Build,
+but must refresh contract-verify against the new digest. A material change
+(supersede, overlapping writes, or repair/fix id) must reopen Contract.
+Reopen finalize rejects shrunk write unions unless `--allow-scope-reduction`.
+A changed source, test,
 configuration, generated artifact, dependency, or adapter binding selected by a
 gate makes that gate's receipt stale.
 
@@ -310,8 +334,8 @@ allowed reason with no check evidence.
 
 The validator rejects malformed document shape, missing or duplicate evidence,
 stale fingerprints, wrong roles, invalid subtask scope or ordering, dishonest
-command outcomes, incomplete review, and invalid adapter discovery. These are
-the eleven invariant groups summarized in [README.md](README.md).
+command outcomes, incomplete review, missing authority verify, and invalid
+adapter discovery. These are the invariant groups summarized in [README.md](README.md).
 
 ## Boundaries
 
