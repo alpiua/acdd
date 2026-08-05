@@ -74,6 +74,13 @@ the files it changes. Its acceptance describes an observable result, and
 dependsOn makes execution order explicit. IDs are unique, dependencies are
 acyclic, and conflicting reads/writes must be serialized.
 
+Until `contract/v1` is finalized, edit the **same** Plan subtask after verify
+feedback, then re-verify. Propose an extra subtask when the surface is too
+large; do not invent `*-r2` / full-scope clones alone. After finalize, only
+addition or replacement via `acdd contract-subtask` (+ re-verify for authority
+digest). Successful `acdd validate` (and Contract `finalize`) print a non-fatal
+**ACDD FREEZE** banner while Contract stays `pass`.
+
 At the end of Contract, every existing subtask receives an immutable part and a
 matching binding in one source-contract bundle. A part captures its scope,
 acceptance, dependencies, replacement link, and its own hash; its binding
@@ -84,18 +91,18 @@ later subtask is always new work, never an edit to an old part:
 - **Addition** extends with non-overlapping writes and `dependsOn`. Register with
   `acdd contract-subtask`. If Contract has `contract-verify`, re-verify so the
   new **authority digest** matches before validation stays green.
-- **Replacement** uses `supersedes`, overlapping writes, or a `*repair*` /
-  `*fix*` / `*amend*` id. That is **material**: `contract-subtask` refuses it.
-  Run `acdd reopen --gate contract/v1`, amend the Plan, re-record Contract
-  (including verify), and finalize. Never shrink scope only to pass validate;
-  reopen finalize blocks dropped writes unless `--allow-scope-reduction`.
+- **Replacement** uses `supersedes` (predecessor stays immutable). Overlapping
+  writes or a `*repair*` / `*fix*` / `*amend*` id also classify as replacement
+  work: still `acdd contract-subtask`, never edit a frozen part and never
+  `acdd reopen`. Re-verify for the new authority digest. Shrinking the active
+  write union requires `--allow-scope-reduction` after an explicit product decision.
 - **Build write-set:** `acdd record` on Build requires `--changed` and/or a git
   worktree; dirty paths must stay inside active subtask writes.
 - **Pre-contract freeze:** product Input paths must not be dirty before
   `contract/v1` pass (tests may change for RED proof).
 
-Source contracts are verification records, not subtask gates. A non-material
-addition does not stale Build/Review/Handoff by itself.
+Source contracts are verification records, not subtask gates. An addition or
+replacement does not stale Build/Review/Handoff by itself.
 
 ### 3. Build
 
@@ -269,8 +276,9 @@ uv run acdd finalize task.md task --gate build/v1 --id build.bundle
 uv run acdd contract-subtask task.md task --workspace-root . \
   --subtask newly-discovered-slice --id contract.newly-discovered-slice
 
-# Material Plan change (supersede / overlapping writes): reopen Contract first.
-uv run acdd reopen task.md task --gate contract/v1
+# Replacement (supersedes predecessor): append, do not reopen.
+uv run acdd contract-subtask task.md task --workspace-root . \
+  --subtask replacement-slice --id contract.replacement-slice
 
 uv run acdd review task.md task \
   --gate review/v1 --check independent-review --id review.independent \
@@ -287,7 +295,7 @@ uv run acdd finalize task.md task --gate build/v1 \
 `--workspace-root`. It validates raw-response preservation, confirmation
 acknowledgement, scope, required dimensions, pass terminal, and UUID values. It
 does not launch reviewers, choose models, or authenticate identity; the
-consuming workflow owns those guarantees. See [DESIGN.md](DESIGN.md) for the
+consuming workflow owns those guarantees. See [DESIGN.md](DESIGN.md); planned work in [ROADMAP.md](ROADMAP.md) for the
 host contract and review-host boundary.
 
 ## Install adapters

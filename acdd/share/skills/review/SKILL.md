@@ -45,8 +45,13 @@ pass terminal has `verdict: pass`, distinct author/reviewer UUIDs, non-empty
 
 If confirmation finds an issue, keep the transcript and mark Review
 `partial`/`blocked`. Remediation belongs to the review host / diagnose loop —
-not to ACDD core. After fixes that change Build inputs, return through Build,
-then recheck with a new transcript id.
+not to ACDD core.
+
+After remediation that changes reviewed inputs or production code: return
+through Build when Build inputs changed, then **always** launch a new
+independent review with a new transcript id on the same scope and parameters.
+Do not treat local green, closed finding notes, or “fixed in place” as a
+substitute for that re-review.
 
 ## Evidence
 

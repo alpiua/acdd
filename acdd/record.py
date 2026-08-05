@@ -13,20 +13,18 @@ from .authority import (
     active_subtasks,
     assert_changed_paths_allowed,
     assert_precontract_clean,
+    assert_writes_not_shrunk,
     authority_digest,
     classify_contract_change,
-    consume_reopen_writes_snapshot,
     gate_requires_authority_verify,
     matching_authority_verify,
     resolve_build_changed_paths,
-    write_reopen_writes_snapshot,
     write_union,
 )
 from .fingerprint import fingerprint_for_gate, subtask_contract_part
 from .model import (
     INAPPLICABLE,
     PASS,
-    PENDING,
     AcddError,
     Check,
     Document,
@@ -365,6 +363,7 @@ def record_subtask_contract(
     subtask_id: str,
     evidence_id: str,
     adapters: list[Adapter] | None = None,
+    allow_scope_reduction: bool = False,
 ) -> dict:
     gate = next((item for item in profile.gates if item.id == "contract/v1"), None)
     receipt = next((item for item in document.receipts if item.get("gate") == "contract/v1"), None)
@@ -385,13 +384,13 @@ def record_subtask_contract(
         for item in records
         if item.get("type") == "subtask_contract" and isinstance(item.get("subtask"), str)
     }
-    contracted_active = tuple(
-        task for task in active_subtasks(document.subtasks) if task.id in contracted_ids
-    )
+    contracted_tasks = tuple(task for task in document.subtasks if task.id in contracted_ids)
+    contracted_active = active_subtasks(contracted_tasks)
+    prior_writes = write_union(contracted_active)
+    new_writes = write_union(active_subtasks(document.subtasks))
     if classify_contract_change(subtask, contracted_active=contracted_active) == "material":
-        raise AcddError(
-            "material contract change requires `acdd reopen --gate contract/v1` "
-            "then re-verify and finalize (supersede, overlapping writes, or repair/fix id)"
+        assert_writes_not_shrunk(
+            prior_writes, new_writes, allow_scope_reduction=allow_scope_reduction
         )
     missing = f"invariant 6 (bounded): subtask {subtask_id!r} has no source contract"
     authority_gap = "invariant 4 (state): contract authority digest lacks matching contract-verify"
@@ -420,19 +419,12 @@ def record_subtask_contract(
 
 
 def reopen_gate(*, document: Document, gate: Gate, workspace_root: Path) -> None:
-    """Clear a terminal receipt so material contract changes can re-enter verify/finalize."""
-    receipt = next((item for item in document.receipts if item.get("gate") == gate.id), None)
-    if receipt is None or receipt.get("status") != PASS:
-        raise AcddError(f"reopen requires a passed receipt for {gate.id}")
-    if gate.id == "contract/v1":
-        write_reopen_writes_snapshot(workspace_root, document.subtasks)
-    _doc.upsert_receipt(
-        doc_path=document.path,
-        gate_id=gate.id,
-        status=PENDING,
-        evidence_ref=PENDING,
-        fingerprint=PENDING,
-        recorded_at=PENDING,
+    """Forbidden: freeze is append-only; use contract-subtask for later work."""
+    del document, workspace_root
+    raise AcddError(
+        f"reopen of {gate.id} is forbidden after freeze; append addition or replacement "
+        "via `acdd contract-subtask` (use supersedes for replacement), then re-run "
+        "contract-verify so the authority digest matches"
     )
 
 
@@ -489,6 +481,7 @@ def finalize_gate(
     reason_code: str | None = None,
     allow_scope_reduction: bool = False,
 ) -> dict:
+    del allow_scope_reduction  # retained on CLI for contract-subtask scope decisions only
     _require_finalizable(document, profile, adapters, workspace_root, gate)
     if adapter.role != gate.owner:
         raise AcddError(f"adapter role {adapter.role!r} does not own {gate.id}")
@@ -503,12 +496,6 @@ def finalize_gate(
     if status not in gate.terminals:
         raise AcddError(f"status {status!r} is not terminal for {gate.id}")
     _require_fresh_id(document, evidence_id)
-    if gate.id == "contract/v1" and status == PASS:
-        consume_reopen_writes_snapshot(
-            workspace_root,
-            write_union(active_subtasks(document.subtasks)),
-            allow_scope_reduction=allow_scope_reduction,
-        )
     fingerprint = fingerprint_for_gate(document, gate, workspace_root, adapters_by_role)
     members = [
         item

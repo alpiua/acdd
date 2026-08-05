@@ -55,8 +55,9 @@ contract. Do not keep repairing under an unchecked premise.
    surfaces; scan for obsolete behavior.
 4. Run lint/type checks when touched, then the nearest owning suite.
 5. If three fix attempts fail **or** two attempts still rest on the same
-   unvalidated premise, stop: rediagnose (fresh evidence), reopen Contract when
-   scope must change, or escalate. Do not invent pass receipts or extend a
+   unvalidated premise, stop: rediagnose (fresh evidence), append a replacement
+   subtask via `contract-subtask` when scope must change (never reopen after
+   freeze), or escalate. Do not invent pass receipts or extend a
    thin `*-repair` to green the validator.
 
 ## Done

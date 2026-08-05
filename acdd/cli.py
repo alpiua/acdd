@@ -10,6 +10,7 @@ import yaml
 from ._doc import resolve_under
 from .adapter import Adapter, AdapterError, index_adapters, load_adapter
 from .discover import discover_adapter_paths
+from .hints import print_freeze_warning
 from .model import AcddError, check_owner, load_document, load_profile
 from .paths import resolve_profile
 from .record import (
@@ -65,13 +66,18 @@ def _parser() -> argparse.ArgumentParser:
     finalize.add_argument(
         "--allow-scope-reduction",
         action="store_true",
-        help="allow contract reopen to drop prior writes after an explicit product decision",
+        help="accepted for compatibility; scope reduction is enforced on contract-subtask",
     )
     review = commands.add_parser("review", parents=[common])
     _req(review, "--gate", "--check", "--id", "--transcript", "--author-uuid", "--reviewer-uuid")
     review.add_argument("--verdict", default="pass")
     subtask_contract = commands.add_parser("contract-subtask", parents=[common])
     _req(subtask_contract, "--subtask", "--id")
+    subtask_contract.add_argument(
+        "--allow-scope-reduction",
+        action="store_true",
+        help="allow replacement append to drop prior writes after an explicit product decision",
+    )
     reopen = commands.add_parser("reopen", parents=[common])
     _req(reopen, "--gate")
     return parser
@@ -178,6 +184,7 @@ def cmd_validate(args) -> int:
             print(f"ACDD INVALID [{error.invariant}]: {error}", file=sys.stderr)
         return 1
     print("ACDD VALID")
+    print_freeze_warning(document.receipts)
     return 0
 
 
@@ -228,6 +235,7 @@ def cmd_contract_subtask(args) -> int:
         subtask_id=args.subtask,
         evidence_id=args.evidence_id,
         adapters=adapters,
+        allow_scope_reduction=args.allow_scope_reduction,
     )
     print(json.dumps(payload, sort_keys=True))
     return 0
@@ -258,6 +266,8 @@ def cmd_finalize(args) -> int:
         allow_scope_reduction=args.allow_scope_reduction,
     )
     print(json.dumps(payload, sort_keys=True))
+    # Re-read receipts after finalize wrote the document.
+    print_freeze_warning(load_document(document.path).receipts)
     return 0
 
 

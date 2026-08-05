@@ -9,7 +9,7 @@ planning_profile: acdd/plan/v1
 subtasks:
   - id: design
     writes: [docs/design/cache-eviction.md]
-    reads: [packages/contracts/cache.py]
+    reads: [src/contracts/cache.py]
     acceptance: design defines LRU semantics, triggers, and observability
     dependsOn: []
 ```
@@ -19,7 +19,7 @@ subtasks:
 ```yaml
 paths:
   - {type: structure, path: docs/design/cache-eviction.md}
-  - {type: structure, path: packages/contracts/cache.py}
+  - {type: structure, path: src/contracts/cache.py}
 ```
 
 ## Evidence

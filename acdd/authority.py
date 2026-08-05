@@ -246,7 +246,7 @@ def assert_writes_not_shrunk(
     ]
     if missing:
         raise AcddError(
-            "invariant 6 (bounded): contract reopen shrank writes "
+            "invariant 6 (bounded): contract change shrank writes "
             f"{missing!r}; pass --allow-scope-reduction after an explicit product decision",
             invariant=6,
         )

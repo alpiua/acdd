@@ -1,4 +1,4 @@
-"""Contract authority digest, material classify, reopen, write-set, pre-contract."""
+"""Contract authority digest, material classify, write-set, pre-contract."""
 
 from __future__ import annotations
 
@@ -15,7 +15,6 @@ from acdd.authority import (
     assert_writes_not_shrunk,
     authority_digest,
     classify_contract_change,
-    reopen_writes_path,
 )
 from acdd.model import AcddError, Check, Gate, Profile, Subtask, load_document
 from acdd.record import (
@@ -220,7 +219,7 @@ def test_precontract_blocks_source_dirty(tmp_path: Path):
     )
 
 
-def test_supersede_requires_reopen(tmp_path: Path):
+def test_supersede_appends_via_contract_subtask(tmp_path: Path):
     document_path, profile, adapters = _doc(tmp_path)
     finalize_gate(
         document=load_document(document_path),
@@ -240,27 +239,39 @@ def test_supersede_requires_reopen(tmp_path: Path):
         ),
         encoding="utf-8",
     )
-    with pytest.raises(AcddError, match="material contract change requires"):
-        record_subtask_contract(
-            document=load_document(document_path),
-            profile=profile,
-            workspace_root=tmp_path,
-            adapter=adapters[0],
-            adapters=adapters,
-            subtask_id="replacement",
-            evidence_id="contract.replacement",
-        )
-    reopen_gate(
+    part = record_subtask_contract(
         document=load_document(document_path),
-        gate=profile.gates[0],
+        profile=profile,
         workspace_root=tmp_path,
+        adapter=adapters[0],
+        adapters=adapters,
+        subtask_id="replacement",
+        evidence_id="contract.replacement",
     )
-    document = load_document(document_path)
-    assert document.receipts[0]["status"] == "pending"
-    assert reopen_writes_path(tmp_path).is_file()
+    assert part["subtask"] == "replacement"
+    assert part["supersedes"] == "first"
 
 
-def test_reopen_finalize_rejects_write_shrink(tmp_path: Path):
+def test_reopen_forbidden_after_freeze(tmp_path: Path):
+    document_path, profile, adapters = _doc(tmp_path)
+    finalize_gate(
+        document=load_document(document_path),
+        profile=profile,
+        adapters=adapters,
+        workspace_root=tmp_path,
+        gate=profile.gates[0],
+        evidence_id="contract.bundle",
+        adapter=adapters[0],
+    )
+    with pytest.raises(AcddError, match="reopen of contract/v1 is forbidden"):
+        reopen_gate(
+            document=load_document(document_path),
+            gate=profile.gates[0],
+            workspace_root=tmp_path,
+        )
+
+
+def test_replacement_append_rejects_write_shrink(tmp_path: Path):
     document_path, profile, adapters = _doc(tmp_path)
     document_path.write_text(
         document_path.read_text(encoding="utf-8").replace(
@@ -278,38 +289,36 @@ def test_reopen_finalize_rejects_write_shrink(tmp_path: Path):
         evidence_id="contract.bundle",
         adapter=adapters[0],
     )
-    reopen_gate(
-        document=load_document(document_path),
-        gate=profile.gates[0],
-        workspace_root=tmp_path,
-    )
     document_path.write_text(
         document_path.read_text(encoding="utf-8").replace(
-            "writes: [src/app.py, src/second.py]",
-            "writes: [src/app.py]",
+            "acceptance: first behavior\n",
+            "acceptance: first behavior\n"
+            "  - id: replacement\n    writes: [src/app.py]\n    reads: []\n"
+            "    acceptance: replacement\n    supersedes: first\n",
         ),
         encoding="utf-8",
     )
     with pytest.raises(AcddError, match="shrank writes"):
-        finalize_gate(
+        record_subtask_contract(
             document=load_document(document_path),
             profile=profile,
-            adapters=adapters,
             workspace_root=tmp_path,
-            gate=profile.gates[0],
-            evidence_id="contract.bundle2",
             adapter=adapters[0],
+            adapters=adapters,
+            subtask_id="replacement",
+            evidence_id="contract.replacement",
         )
-    finalize_gate(
+    part = record_subtask_contract(
         document=load_document(document_path),
         profile=profile,
-        adapters=adapters,
         workspace_root=tmp_path,
-        gate=profile.gates[0],
-        evidence_id="contract.bundle3",
         adapter=adapters[0],
+        adapters=adapters,
+        subtask_id="replacement",
+        evidence_id="contract.replacement",
         allow_scope_reduction=True,
     )
+    assert part["subtask"] == "replacement"
 
 
 def test_build_requires_changed_or_git(tmp_path: Path):

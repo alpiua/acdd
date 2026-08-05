@@ -11,14 +11,33 @@ Read the integrated workspace, profile, and implementation adapter. Load the
 mandatory [TDD procedure](../tdd/SKILL.md), then `runtime-and-integration`;
 append its `promptAppend` fragment if present.
 
+## Verify ↔ edit order
+
+Before Contract finalize: **failed verify ≠ freeze**. Edit the current subtask
+`S` in place → re-verify → repeat until PASS → then finalize. Propose splits;
+never invent `*-r2` / full write-union clones. Do not patch `promptAppend` to
+encode this (fingerprint). Details: Contract skill.
+
+## Freeze (do not rewrite Contract)
+
+Before Contract pass: edit the **current** subtask in place after verify
+feedback; propose (do not invent) an extra subtask if the surface is too large.
+Never spawn `*-r2` clones to dodge an open verify. See Contract skill.
+
+While `contract/v1` is `pass`, `acdd validate` echoes **ACDD FREEZE**.
+**FORBIDDEN:** edit frozen Plan parts, Task execution contract section, or
+adapter `promptAppend`; `acdd reopen`; silent part/receipt rewrite.
+**ONLY:** `acdd contract-subtask` → re-run `contract-verify` (matching
+`authorityDigest`) → implement inside active writes. See Contract skill.
+
 ## TDD
 
 The frozen Contract gives every subtask its behavior, acceptance, and forbidden
 effects. Its separately hashed source-contract part and matching binding are
 immutable during Build; both live in one append-only bundle. Register new work
-before testing it: additive non-overlapping slices via `contract-subtask` (+
-re-verify); material `supersedes` / overlapping writes / `*repair*` ids via
-`reopen` + Contract re-finalize (see Contract skill). Build expresses each
+before testing it: addition or replacement via `contract-subtask` (+
+re-verify for authority digest; never reopen after freeze — see Contract skill).
+Build expresses each
 subtask's scope in a focused functional test at the canonical behavior
 boundary; a test for one subtask cannot prove another subtask's acceptance.
 `acdd record` on Build requires `--changed` and/or a git worktree; dirty

@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "acdd"
-version = "0.4.2"
+version = "0.4.3"
 description = "ACDD — Agentic Contract-Driven Development"
 readme = "README.md"
 license = "MIT"
@@ -36,10 +36,10 @@ classifiers = [
 dependencies = ["PyYAML>=6.0"]
 
 [project.urls]
-Homepage = "https://github.com/alpiua/acdd"
-Repository = "https://github.com/alpiua/acdd"
-Issues = "https://github.com/alpiua/acdd/issues"
-Documentation = "https://github.com/alpiua/acdd#readme"
+Homepage = "https://github.com/alpiua/acdd-workflow"
+Repository = "https://github.com/alpiua/acdd-workflow"
+Issues = "https://github.com/alpiua/acdd-workflow/issues"
+Documentation = "https://github.com/alpiua/acdd-workflow#readme"
 
 [project.scripts]
 acdd = "acdd.cli:main"

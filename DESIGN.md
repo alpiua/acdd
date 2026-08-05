@@ -88,22 +88,37 @@ Contract receipt are never rewritten. Recomputing a part hash alone does not
 authorize a rewritten part because its existing binding still contains the old
 hash. Each part must bind the passed Contract receipt.
 
-Later work has two explicit forms.
+Later work has two explicit forms. An **addition** is a new subtask with its own
+narrow paths and `dependsOn` reference to the work it extends. Its predecessor
+must finish its TDD Red → Green before the addition starts; the dependency is the
+record of that order. A **replacement** is a new subtask with
+`supersedes: predecessor`. The predecessor contract remains immutable and its
+superseded state is derived from the successor; nothing is edited or deleted.
+Each predecessor has at most one direct successor, and replacement links cannot
+cycle.
 
-An **addition** is a new subtask with its own non-overlapping writes and a
-`dependsOn` link. Use `acdd contract-subtask` to append its part. When
-`contract/v1` has a review check (`contract-verify`), the Plan's
-**contract authority digest** must gain a matching review evidence row before
-validation stays green — silent narrowing under a stale verify is rejected.
+Until Contract is finalized, Plan subtasks remain editable. Apply
+`contract-verify` findings by changing the **same** subtask id in place, then
+re-verify. If the change surface looks too large for one subtask, propose an
+additional slice and wait for an explicit decision — do not invent parallel
+`*-r2` / repair twins or full write-union clones unilaterally.
 
-A **replacement** (`supersedes`), any new subtask whose writes overlap an
-already-contracted active slice, or a subtask whose id matches `repair` /
-`fix` / `amend` is **material**. `contract-subtask` refuses it.
-Run `acdd reopen --gate contract/v1`, put the full amended Plan in place,
-re-record Contract checks (including verify), and finalize a new bundle. Do not
-shrink writes or acceptance only to satisfy the validator. After reopen,
-finalize rejects a Plan whose active writes no longer cover the prior write
-union unless `--allow-scope-reduction` is set for an explicit product decision.
+After finalize, parts are append-only as below. `acdd validate` and a successful
+`acdd finalize` of `contract/v1` print a non-fatal **ACDD FREEZE** banner while
+that gate remains `pass` (agent soft policy on top of digests/JSONL). Editing
+adapter `promptAppend` files after a terminal receipt still stales the gate
+fingerprint (`promptDigest`).
+
+Both forms use `acdd contract-subtask` to append their own part-and-binding pair
+to the same bundle. The command rejects a duplicate part ID or subtask, and
+validation rejects malformed parts or bindings, changed hashes, changed source
+fields, missing bindings, or a replacement whose predecessor is not contracted.
+Replacement appends that would drop prior active writes fail unless
+`--allow-scope-reduction` is set after an explicit product decision. When
+`contract/v1` has a review check (`contract-verify`), the Plan's **contract
+authority digest** must gain a matching review evidence row before validation
+stays green — silent narrowing under a stale verify is rejected. Do not reopen
+or rewrite the Contract receipt after freeze.
 
 `acdd record` on `build/v1` always checks the changed write-set: pass
 `--changed PATH` and/or run inside a git worktree (dirty porcelain paths). Paths
@@ -114,8 +129,8 @@ Inputs (`source`, `configuration`, `generated`, `dependency`, `proto`,
 `migration`) are dirty in git. Test Inputs stay allowed for RED proof.
 
 Earlier parts and a still-valid Contract receipt are never rewritten by an
-addition. These are verification records, not subtask gates or receipts; a
-non-material addition does not itself stale Build/Review/Handoff.
+addition or replacement. These are verification records, not subtask gates or
+receipts; an addition or replacement does not itself stale Build/Review/Handoff.
 
 ## Task-delivery workflow
 
@@ -132,7 +147,9 @@ owner, boundaries, affected callers, non-goals, and forbidden effects.
 authorities, data flow, backends, reads, writes) plus the pre-change failing
 proof, post-fix invariant, forbidden effects, and affected dimensions.
 `contract-verify` is an LLM substance check (check owner `contract-verify`) that
-must pass with no open corrections before finalize. Its pass terminal includes a
+must pass with no open corrections before finalize. Failed verify before
+finalize is not a freeze: edit the current subtask, re-run verify; propose
+splits — do not invent replacement clones alone. Its pass terminal includes a
 **Delivery command**: parallel waves and a directive to launch one subagent per
 subtask in each ready wave. Tests derived afterward must cover the frozen
 contract, not trivia.
@@ -316,13 +333,18 @@ bind the Plan. Source contracts bind subtask fields separately. Separately, the
 subtask; when Contract includes a review check, a matching
 `authorityDigest` on review evidence is required while `contract/v1` is pass.
 
-Therefore: a non-overlapping addition may append a part without staling Build,
-but must refresh contract-verify against the new digest. A material change
-(supersede, overlapping writes, or repair/fix id) must reopen Contract.
-Reopen finalize rejects shrunk write unions unless `--allow-scope-reduction`.
+Therefore: an addition or replacement may append a part without staling Build
+or rewriting the Contract receipt, but must refresh contract-verify against the
+new authority digest. Replacement appends that shrink the active write union
+fail unless `--allow-scope-reduction` is set. `acdd reopen` is forbidden after
+freeze.
 A changed source, test,
 configuration, generated artifact, dependency, or adapter binding selected by a
 gate makes that gate's receipt stale.
+
+While `contract/v1` is `pass`, successful `acdd validate` (and `finalize` of
+that gate) emit the **ACDD FREEZE** warning. Exit codes are unchanged; the
+banner is agent-facing guidance only.
 
 A stale receipt is invalid state, not another status. Record current evidence and
 finalize that same gate to point its receipt at a new bundle. All other validation
@@ -340,7 +362,8 @@ adapter discovery. These are the invariant groups summarized in [README.md](READ
 ## Boundaries
 
 The core has no extra statuses, gate extensions, scheduler, review runtime, or
-per-subtask receipt model. The source-contract bundle and its hashed parts are
+per-subtask receipt model. Subtasks have no `status` / `verified` fields yet
+(gate Receipts remain the only workflow statuses). The source-contract bundle and its hashed parts are
 verification evidence only: they do not give a subtask an independent lifecycle.
 Repository-specific commands and execution environments belong to adapters; the
 global profile receipts remain the durable workflow state.

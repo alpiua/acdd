@@ -16,6 +16,7 @@ echo "==> ruff format --check"
 uv run ruff format --check .
 
 echo "==> basedpyright"
+echo "AGENT: forbid Any / cast() / # type: ignore|# pyright: ignore — fix types, do not suppress."
 uv run basedpyright --warnings acdd tests
 
 echo "==> pytest"

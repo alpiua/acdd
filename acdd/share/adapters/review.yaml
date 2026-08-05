@@ -1,5 +1,5 @@
 apiVersion: acdd/adapter/v1
-id: independent-reviewer
+id: example-review
 role: review
 artifactDir: artifacts
 gates:
@@ -9,11 +9,10 @@ gates:
       # transcript with `acdd review`. Placeholders: {document}, {evidenceId},
       # {reviewerSessionUuid}, {prompt}.
       # Run inside one owning git repo for the settled Build/plan tree.
-      # Not contract-verify: do not span separate Planner + implementation roots.
+      # Replace argv with the repository review-host CLI.
       independent-review:
         argv:
-          - node
-          - plugins/pi-review-agents/bin/pi-review.mjs
+          - review-host
           - --print
           - --session-id
           - "{reviewerSessionUuid}"

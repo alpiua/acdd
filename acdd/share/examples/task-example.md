@@ -1,8 +1,8 @@
 ---
-title: Fix memory leak in worker pool
+title: Fix resource leak in pool module
 planning_profile: acdd/task/v1
 executable_proof:
-  argv: [uv, run, pytest, tests/worker/test_pool.py::test_expired_jobs_release, -q]
+  argv: [uv, run, pytest, tests/test_pool.py::test_expired_jobs_release, -q]
   expected_failure: "assert"
 ---
 
@@ -10,9 +10,9 @@ executable_proof:
 
 ```yaml
 subtasks:
-  - id: worker-pool
-    writes: [services/worker/pool.py, tests/worker/test_pool.py]
-    reads: [packages/contracts/worker.py]
+  - id: pool-release
+    writes: [src/pool.py, tests/test_pool.py]
+    reads: [src/contracts.py]
     acceptance: expired jobs are released and round-trip ordering is preserved
     dependsOn: []
 ```
@@ -21,10 +21,10 @@ subtasks:
 
 ```yaml
 paths:
-  - {type: source, path: services/worker/pool.py}
-  - {type: test, path: tests/worker/test_pool.py}
-  - {type: configuration, path: services/worker/config.yaml}
-  - {type: structure, path: packages/contracts/worker.py}
+  - {type: source, path: src/pool.py}
+  - {type: test, path: tests/test_pool.py}
+  - {type: configuration, path: config/pool.yaml}
+  - {type: structure, path: src/contracts.py}
 ```
 
 ## Evidence

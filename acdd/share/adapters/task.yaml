@@ -1,15 +1,25 @@
 apiVersion: acdd/adapter/v1
-id: product-task
+id: example-task
 role: task
 artifactDir: artifacts
 gates:
   design/v1:
     checks:
-      design-basis: {cwd: ., argv: [python3, scripts/gate_check.py, "{document}", profiles/task/v1.yaml]}
-      plan-shape: {cwd: ., argv: [python3, scripts/gate_check.py, "{document}", profiles/task/v1.yaml]}
+      design-basis:
+        cwd: .
+        argv: [python3, scripts/gate_check.py, "{document}", profiles/task/v1.yaml]
+        # promptAppend: prompts/design-basis.md   # hashed; do not edit after terminal receipt
+      plan-shape:
+        cwd: .
+        argv: [python3, scripts/gate_check.py, "{document}", profiles/task/v1.yaml]
   contract/v1:
+    # Hashed into contract/v1 fingerprint — keep heading stable after pass.
+    contractSections:
+      - Task execution contract (`contract/v1` output)
     checks:
-      decomposition: {cwd: ., argv: [python3, scripts/gate_check.py, "{document}", profiles/task/v1.yaml]}
+      decomposition:
+        cwd: .
+        argv: [python3, scripts/gate_check.py, "{document}", profiles/task/v1.yaml]
       # Matrix content is part of executable-proof (validated before RED).
       executable-proof:
         cwd: .
@@ -25,4 +35,6 @@ gates:
           - "{document}"
   handoff/v1:
     checks:
-      repository-handoff: {cwd: ., argv: [python3, scripts/handoff_check.py, "{document}", profiles/task/v1.yaml]}
+      repository-handoff:
+        cwd: .
+        argv: [python3, scripts/handoff_check.py, "{document}", profiles/task/v1.yaml]

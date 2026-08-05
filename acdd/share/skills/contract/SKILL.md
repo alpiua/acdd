@@ -61,18 +61,75 @@ subtask** in each ready wave (see Build skill).
 
 ## Evidence
 
-Record decomposition, executable-proof, and contract-verify, then finalize.
+### Finalize order (freeze)
+
+1. Finish every document edit that belongs on the PASS snapshot: contract
+   section, checklist rows, Gate state, blockers.
+2. `acdd validate` green on that exact tree (adapters + `promptAppend` files
+   included).
+3. Record decomposition, executable-proof, and contract-verify, then
+   **finalize**.
+4. Stop editing the freeze surface. Finalize is a freeze, not a milestone badge
+   before more hygiene patches.
+
+**Freeze surface** includes the gate `contractSections` body, adapter check
+bindings (`argv`, cwd, timeouts), and every bound `promptAppend` file
+(`promptDigest`). **Do not edit those prompt files** during delivery — not to
+harden verify, not to clear a finding, not as “hygiene.” A post-receipt edit to
+`prompts/contract-verify-task.md` (or any other binding prompt) changes the
+`contract/v1` fingerprint and stales the receipt even when the task markdown
+is untouched. Status prose outside `contractSections` does not move the
+fingerprint — still do not patch it after finalize; treat the whole task
+snapshot as frozen.
+
 Finalization creates one append-only source-contract bundle with a separately
 hashed part and matching binding for every current subtask. Do not edit those
-subtasks during Build.
+subtasks during Build. Do not rewrite earlier parts or the Contract receipt.
 
-For newly discovered work:
+Do not dirty product Inputs (`source`, …) before `contract/v1` pass; tests
+may change for RED proof.
 
-- **Additive** (non-overlapping writes + `dependsOn`): `acdd contract-subtask`,
-  then re-run `contract-verify` so authority digest matches.
-- **Material** (`supersedes`, overlapping writes, or `*repair*`/`*fix*`/`*amend*`
-  id): `acdd reopen --gate contract/v1`, amend Plan, re-record Contract checks,
-  finalize. Do not shrink writes/acceptance only to green the validator;
-  reopen finalize blocks dropped writes unless `--allow-scope-reduction`.
-- Do not dirty product Inputs (`source`, …) before `contract/v1` pass; tests
-  may change for RED proof.
+### Verify ↔ edit order (before Contract finalize)
+
+**Failed verify is not a freeze.** Freeze starts only after `contract/v1`
+**finalize** (`pass` + source-contract parts). Do not edit hashed
+`promptAppend` files to “teach” this — that stales fingerprints.
+
+Ordered loop for the **current** open subtask `S`:
+
+1. `S` is mutable (Contract not finalized).
+2. Verify (or user) findings → **edit the same id `S`** in place
+   (writes / reads / acceptance / matrix / dependsOn as needed).
+3. Re-run `contract-verify` on the **whole** package.
+4. Repeat 2–3 until verify PASS with no open `requiredFix`.
+5. Only then: record checks → **finalize** Contract.
+6. After finalize, `S` is frozen. New scope → **propose** addition or
+   `supersedes` to the user; do not call `contract-subtask` without explicit
+   approval. Never clone the full write-union into `S-r2` / `*-repair` to dodge
+   an open verify or to “avoid shrink.”
+7. If the surface looks too large for one subtask **before** finalize: stop,
+   propose a split, wait for a decision — do not invent the split alone.
+
+**One-line rule:** verify fail → edit `S` → verify again; finalize → then
+append-only via approved `contract-subtask`.
+
+### After freeze (Build and later)
+
+`acdd validate` prints an **ACDD FREEZE** banner while `contract/v1` is
+`pass`. Treat it as authoritative soft policy on top of hard digests/JSONL.
+
+**FORBIDDEN**
+- Edit frozen Plan subtask fields in place (writes/reads/acceptance/dependsOn/supersedes)
+- Edit the Task execution contract / `contractSections` freeze surface
+- Edit adapter `promptAppend` files (stales `promptDigest`)
+- `acdd reopen` after Contract freeze
+- Silent rewrite of source-contract parts, the Contract receipt, or hashed detail
+- Unilateral `*-r2` / full write-union clones
+
+**ONLY for new scope (after explicit user approval)**
+- **Addition** (non-overlapping writes + `dependsOn`): `acdd contract-subtask`,
+  then re-run `contract-verify` so authority digest matches
+- **Replacement** (`supersedes`): `acdd contract-subtask` — append a new part;
+  never edit a frozen part. Shrinking the active write union requires
+  `--allow-scope-reduction` after an explicit product decision
+- Then continue Build within the active write union

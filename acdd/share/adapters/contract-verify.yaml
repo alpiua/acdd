@@ -1,5 +1,5 @@
 apiVersion: acdd/adapter/v1
-id: contract-verifier
+id: example-contract-verify
 role: contract-verify
 artifactDir: artifacts
 gates:
@@ -9,12 +9,10 @@ gates:
       # (--gate contract/v1 --check contract-verify). ACDD does not create sessions.
       # Placeholders: {document}, {evidenceId}, {reviewerSessionUuid}, {prompt}.
       # Host must give READ access to the contract document and cited code roots.
-      # Not one Pi dirty-tree spanning separate Planner + implementation git repos.
-      # chain-coverage = matrix producers/consumers/writes/backends that resolve live.
+      # Replace argv with the repository review-host CLI.
       contract-verify:
         argv:
-          - node
-          - plugins/pi-review-agents/bin/pi-review.mjs
+          - review-host
           - --print
           - --session-id
           - "{reviewerSessionUuid}"
@@ -24,8 +22,7 @@ gates:
       # Same host-template rules as contract/v1; planning-set substance only.
       contract-verify:
         argv:
-          - node
-          - plugins/pi-review-agents/bin/pi-review.mjs
+          - review-host
           - --print
           - --session-id
           - "{reviewerSessionUuid}"
