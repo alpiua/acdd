@@ -14,9 +14,22 @@ _PROFILE_ALIASES = {
 
 
 def share_dir() -> Path:
-    """Return the filesystem path to the installed share tree."""
-    root = files("acdd.share")
-    return Path(str(root))
+    """Return the filesystem path to the installed or local share tree."""
+    # First check if running from source repo root
+    repo_root = Path(__file__).resolve().parents[2]
+    if (repo_root / "profiles").exists() and (repo_root / "skills").exists():
+        return repo_root
+
+    # Fallback to installed package resources (profiles/skills/... live under acdd.share).
+    try:
+        root = files("acdd.share")
+        p = Path(str(root))
+        if p.exists():
+            return p
+    except (ModuleNotFoundError, TypeError, OSError, AttributeError):
+        pass
+
+    return repo_root
 
 
 def share_path(*parts: str) -> Path:

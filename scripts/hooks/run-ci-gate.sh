@@ -17,13 +17,13 @@ uv run ruff format --check .
 
 echo "==> basedpyright"
 echo "AGENT: forbid Any / cast() / # type: ignore|# pyright: ignore — fix types, do not suppress."
-uv run basedpyright --warnings acdd tests
+uv run basedpyright --warnings src tests
 
 echo "==> pytest"
 uv run python -m pytest
 
 echo "==> build + twine check"
-rm -rf build dist *.egg-info acdd/*.egg-info
+rm -rf build dist *.egg-info acdd/*.egg-info src/*.egg-info
 uv build
 uv run --with twine python -m twine check dist/*
 

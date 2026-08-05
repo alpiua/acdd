@@ -12,6 +12,7 @@ from acdd._doc import extract_sections
 from acdd.adapter import load_adapter
 from acdd.fingerprint import fingerprint_for_gate
 from acdd.model import Check, Document, Gate, load_profile
+from acdd.paths import share_path
 
 
 def test_extract_sections_stops_at_h2_keeps_h3(tmp_path: Path):
@@ -36,10 +37,11 @@ def test_extract_sections_missing_heading_fails(tmp_path: Path):
         extract_sections(path, ("Absent",))
 
 
-def test_markdown_gate_check_forbid_multiline(tmp_path: Path, ROOT: Path):
+def test_markdown_gate_check_forbid_multiline(tmp_path: Path):
     doc = tmp_path / "doc.md"
     doc.write_text("## Scope\n\nTODO: fix later\n", encoding="utf-8")
-    script = ROOT / "acdd" / "share" / "scripts" / "markdown_gate_check.py"
+    script = share_path("scripts", "markdown_gate_check.py")
+
     result = subprocess.run(
         [
             sys.executable,

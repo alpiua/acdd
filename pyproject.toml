@@ -1,10 +1,10 @@
 [build-system]
-requires = ["setuptools>=68"]
-build-backend = "setuptools.build_meta"
+requires = ["hatchling>=1.25"]
+build-backend = "hatchling.build"
 
 [project]
 name = "acdd"
-version = "0.4.3"
+version = "0.4.4"
 description = "ACDD — Agentic Contract-Driven Development"
 readme = "README.md"
 license = "MIT"
@@ -44,19 +44,25 @@ Documentation = "https://github.com/alpiua/acdd-workflow#readme"
 [project.scripts]
 acdd = "acdd.cli:main"
 
-[tool.setuptools.packages.find]
-include = ["acdd", "acdd.*"]
+# Source lives in src/acdd. Share trees stay at the repo root.
+# sdist mirrors that layout; wheel maps them into acdd/share/ so both
+# checkout→wheel and sdist→wheel see the same source paths.
+[tool.hatch.build.targets.wheel]
+packages = ["src/acdd"]
 
-[tool.setuptools.package-data]
-"acdd.share" = [
-  "AGENTS.md",
-  "DESIGN.md",
-  "profiles/**/*.yaml",
-  "skills/**/*.md",
-  "adapters/**/*.yaml",
-  "examples/**/*.md",
-  "scripts/**/*.py",
-]
+[tool.hatch.build.targets.sdist.force-include]
+"adapters" = "adapters"
+"examples" = "examples"
+"profiles" = "profiles"
+"skills" = "skills"
+"scripts/markdown_gate_check.py" = "scripts/markdown_gate_check.py"
+
+[tool.hatch.build.targets.wheel.force-include]
+"adapters" = "acdd/share/adapters"
+"examples" = "acdd/share/examples"
+"profiles" = "acdd/share/profiles"
+"skills" = "acdd/share/skills"
+"scripts/markdown_gate_check.py" = "acdd/share/scripts/markdown_gate_check.py"
 
 [dependency-groups]
 dev = [
@@ -75,7 +81,8 @@ target-version = "py311"
 line-length = 100
 
 [tool.basedpyright]
-include = ["acdd", "tests"]
+include = ["src", "tests"]
+
 typeCheckingMode = "basic"
 # Lean validator codebase is still largely unannotated; keep CI green like the
 # grid-view-spec job shape while typing catches up.
@@ -102,6 +109,3 @@ reportGeneralTypeIssues = "none"
 reportUnnecessaryIsInstance = "none"
 reportUnnecessaryContains = "none"
 reportUnannotatedClassAttribute = "none"
-
-
-

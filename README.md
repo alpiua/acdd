@@ -151,7 +151,7 @@ implements source changes.
 | Code review | independent-review | Challenge the settled set for completeness and consistency (`review/v1`). |
 
 Use the Plan and Review adapters described below. See the
-[plan example](acdd/share/examples/plan-example.md).
+[plan example](examples/plan-example.md).
 
 ## 11 invariants: what the validator refuses
 
@@ -199,9 +199,10 @@ Use the Plan and Review adapters described below. See the
 
 ## Prompts and agent routing
 
-[AGENTS.md](AGENTS.md) routes one active gate to one gate skill under `acdd/share/skills/`.
+[AGENTS.md](AGENTS.md) routes one active gate to one gate skill under `skills/`.
 Load only that check section. Build additionally loads the shared
-[TDD procedure](acdd/share/skills/tdd/SKILL.md); [Diagnose](acdd/share/skills/diagnose/SKILL.md) is a
+[TDD procedure](skills/tdd/SKILL.md); [Diagnose](skills/diagnose/SKILL.md) is a
+
 pre-gate helper for a defect or accepted finding, then work returns to its gate.
 
 An adapter may add repository context with promptAppend on a check binding:
