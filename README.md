@@ -242,10 +242,26 @@ that id is not yet in the document.
 pip install acdd
 # or from this repository:
 pip install .
+# editable:
+uv sync --group dev
 ```
 
-Bundled profiles ship inside the package. After install you can pass an alias
-(`task`, `plan`, `acdd/task/v1`, `acdd/plan/v1`) instead of a file path.
+Bundled profiles, skills, adapters, examples, and `scripts/markdown_gate_check.py`
+ship inside the package under `acdd/share/`. After install you can pass a profile
+alias (`task`, `plan`, `acdd/task/v1`, `acdd/plan/v1`) instead of a file path.
+
+### Repository layout
+
+| Path | Role |
+| --- | --- |
+| `src/acdd/` | Import package (CLI, validator, paths) |
+| `adapters/`, `profiles/`, `skills/`, `examples/` | Share trees at the repo root (editable installs resolve them here) |
+| `scripts/markdown_gate_check.py` | Bundled gate helper (also under share when installed) |
+| `scripts/hooks/` | Local CI / git hooks (not installed into the wheel) |
+
+Packaging uses **Hatchling**. The sdist keeps the root share layout; the wheel
+maps those trees into `acdd/share/` so both checkout installs and
+sdist→wheel builds resolve the same resources.
 
 ## Commands
 
